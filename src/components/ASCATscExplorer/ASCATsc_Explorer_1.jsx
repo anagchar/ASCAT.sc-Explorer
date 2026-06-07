@@ -358,13 +358,8 @@ function UploadScreen({onLoad}){
         </div>
         <div className="mt-8 rounded-xl p-4 text-left" style={{background:"rgba(255,255,255,0.03)",border:"1px solid #3a3a3a"}}>
           <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">How to export from R</div>
-          <pre className="text-xs text-gray-500 font-mono leading-relaxed overflow-x-auto">{`source("ASCAT_plot.R")
-source("ASCATsc_interactive.R")
-source("export_for_web.R")
-
-res <- readRDS("your_results.rds")
-app_data <- prepare_explorer_data(res)
-export_for_web(app_data, "ascat_data.json")`}</pre>
+          <pre className="text-xs text-gray-500 font-mono leading-relaxed overflow-x-auto">{`source("R/ascatsc_to_web.R")
+rds_to_web("your_results.rds", "ascat_data.json")`}</pre>
         </div>
       </div>
     </div>
