@@ -103,12 +103,3 @@ Update the `homepage` field in `package.json` to match your own GitHub Pages URL
 | **Browser app** | React 19, D3 v7, Tailwind CSS (CDN) |
 | **R export** | data.table, jsonlite |
 
----
-
-## Citation
-
-If you use ASCAT.sc in your work, please cite the original paper:
-
-> Andor N, et al. **ASCAT.sc: accurate single-cell copy number profiling
-> from single-cell and single nucleus sequencing data.**
-> *Bioinformatics*, 2023.
