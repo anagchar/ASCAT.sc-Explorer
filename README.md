@@ -1,6 +1,6 @@
 # ASCAT.sc Explorer
 
-An interactive browser-based viewer for single-cell copy-number data produced by [ASCAT.sc](https://github.com/VanLoo-lab/ASCAT.sc).
+An interactive browser-based viewer for single-cell copy-number data produced for [ASCAT.sc](https://github.com/VanLoo-lab/ASCAT.sc).
 
 **Live app:** https://anagchar.github.io/ASCAT.sc-Explorer
 
