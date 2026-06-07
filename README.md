@@ -63,39 +63,4 @@ xdg-open ASCAT.sc-Explorer/build/index.html   # Linux
 
 No npm, no server required.
 
----
-
-## JSON format reference
-
-The app accepts any JSON file with at minimum these top-level keys:
-
-| Key | Type | Description |
-|-----|------|-------------|
-| `bins` | object | `chr`, `start`, `end`, `start_cum`, `end_cum` arrays (one entry per bin) |
-| `chr_info` | array | `{chr, start_cum, end_cum, mid_cum}` per chromosome |
-| `profiles` | object | `{ cellName: [cn_bin1, cn_bin2, …] }` — integer total CN |
-
-Optional keys: `nMajor`, `nMinor`, `ci`, `raw`, `quality`, `dendrogram`,
-`clustering_order`, `cell_types`, `metadata`.
-
-The app will recompute clustering in-browser if `dendrogram` is absent.
-
----
-
-## Deploying your own instance
-
-```bash
-npm run deploy     # builds and pushes to gh-pages branch
-```
-
-Update the `homepage` field in `package.json` to match your own GitHub Pages URL before running.
-
----
-
-## Dependencies
-
-| | |
-|---|---|
-| **Browser app** | React 19, D3 v7, Tailwind CSS (CDN) |
-| **R export** | data.table, jsonlite |
 
