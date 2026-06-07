@@ -350,7 +350,7 @@ function UploadScreen({onLoad}){
           {loading?(<div className="text-blue-400"><div className="inline-block w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full animate-spin mb-3"/><p>Loading...</p></div>):(
             <><svg className="mx-auto mb-4 text-gray-500" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5-5 5 5M12 5v12"/></svg>
               <p className="text-gray-300 text-lg mb-1">Drop <code className="text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded text-sm">ascat_data.json</code> here</p>
-              <p className="text-gray-500 text-sm">Exported from R via <code className="text-gray-400">export_for_web()</code></p></>)}
+              <p className="text-gray-500 text-sm">Exported from R via <code className="text-gray-400">rds_to_web()</code></p></>)}
         </div>
         {error&&<div className="mt-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm whitespace-pre-wrap font-mono leading-relaxed">{error}</div>}
         <div className="mt-6 text-center">
