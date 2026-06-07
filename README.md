@@ -1,70 +1,114 @@
-# Getting Started with Create React App
+# ASCAT.sc Explorer
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+An interactive browser-based viewer for single-cell copy-number data produced by [ASCAT.sc](https://github.com/VanLoo-lab/ASCAT.sc).
 
-## Available Scripts
+**Live app:** https://anagchar.github.io/ASCAT.sc-Explorer
 
-In the project directory, you can run:
+---
 
-### `npm start`
+## What it shows
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+- Genome-wide CN heatmap across all cells (zoomable, scrollable)
+- Allele-specific view (major / minor copy numbers)
+- Hierarchical dendrogram with ward.D2 clustering
+- Per-cell profile panel (click any row)
+- QC sidebar — filter cells by MAPD and median residual
+- Cell-type colouring when annotations are supplied
+- G-banding ideogram (hg38, loaded on demand from UCSC)
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+---
 
-### `npm test`
+## Workflow
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+### Step 1 — convert your RDS to JSON (in R)
 
-### `npm run build`
+```r
+# install.packages(c("data.table", "jsonlite"))   # if not already installed
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+source("R/ascatsc_to_web.R")
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+# Minimal — total CN only
+rds_to_web("your_results.rds", "ascat_data.json")
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+# With cell-type annotations from a multiome experiment
+rds_to_web(
+  rds_path         = "your_results.rds",
+  output_path      = "ascat_data.json",
+  cell_type_file   = "final_cell_type.txt",   # two columns: barcode_rna, cell_type
+  barcode_map_file = "barcodes_atac_gex.csv"  # two columns: barcode_dna, barcode_rna
+)
+```
 
-### `npm run eject`
+The script reads directly from the `ASCAT.sc` result object and exports
+everything the app needs: CN profiles, allele-specific calls (nMajor/nMinor),
+CI bands, dendrogram, quality metrics, and cell-type labels.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+### Step 2 — upload the JSON
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+Go to **https://anagchar.github.io/ASCAT.sc-Explorer**, drag-and-drop (or
+click to browse) your `ascat_data.json`, and explore.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+No data is sent to any server — everything runs in your browser.
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+---
 
-## Learn More
+## Running locally (no install required)
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+The repo includes a pre-built `build/` folder. Just clone and open:
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+```bash
+git clone https://github.com/anagchar/ASCAT.sc-Explorer.git
+# then open build/index.html in your browser
+open ASCAT.sc-Explorer/build/index.html        # macOS
+xdg-open ASCAT.sc-Explorer/build/index.html   # Linux
+# on Windows: double-click build\index.html
+```
 
-### Code Splitting
+No npm, no server, no internet connection required (cytobands are loaded
+on demand from UCSC but the rest of the app works fully offline).
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+---
 
-### Analyzing the Bundle Size
+## JSON format reference
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+The app accepts any JSON file with at minimum these top-level keys:
 
-### Making a Progressive Web App
+| Key | Type | Description |
+|-----|------|-------------|
+| `bins` | object | `chr`, `start`, `end`, `start_cum`, `end_cum` arrays (one entry per bin) |
+| `chr_info` | array | `{chr, start_cum, end_cum, mid_cum}` per chromosome |
+| `profiles` | object | `{ cellName: [cn_bin1, cn_bin2, …] }` — integer total CN |
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+Optional keys: `nMajor`, `nMinor`, `ci`, `raw`, `quality`, `dendrogram`,
+`clustering_order`, `cell_types`, `metadata`.
 
-### Advanced Configuration
+The app will recompute clustering in-browser if `dendrogram` is absent.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+---
 
-### Deployment
+## Deploying your own instance
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+```bash
+npm run deploy     # builds and pushes to gh-pages branch
+```
 
-### `npm run build` fails to minify
+Update the `homepage` field in `package.json` to match your own GitHub Pages URL before running.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+---
+
+## Dependencies
+
+| | |
+|---|---|
+| **Browser app** | React 19, D3 v7, Tailwind CSS (CDN) |
+| **R export** | data.table, jsonlite |
+
+---
+
+## Citation
+
+If you use ASCAT.sc in your work, please cite the original paper:
+
+> Andor N, et al. **ASCAT.sc: accurate single-cell copy number profiling
+> from single-cell and single nucleus sequencing data.**
+> *Bioinformatics*, 2023.
