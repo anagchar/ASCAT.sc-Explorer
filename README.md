@@ -14,7 +14,6 @@ An interactive browser-based viewer for single-cell copy-number data produced fo
 - Per-cell profile panel (click any row)
 - QC sidebar — filter cells by MAPD and median residual
 - Cell-type colouring when annotations are supplied
-- G-banding ideogram (hg38, loaded on demand from UCSC)
 
 ---
 
