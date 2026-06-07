@@ -61,8 +61,7 @@ xdg-open ASCAT.sc-Explorer/build/index.html   # Linux
 # on Windows: double-click build\index.html
 ```
 
-No npm, no server, no internet connection required (cytobands are loaded
-on demand from UCSC but the rest of the app works fully offline).
+No npm, no server required.
 
 ---
 
