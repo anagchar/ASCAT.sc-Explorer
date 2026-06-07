@@ -47,8 +47,6 @@ CI bands, dendrogram, quality metrics, and cell-type labels.
 Go to **https://anagchar.github.io/ASCAT.sc-Explorer**, drag-and-drop (or
 click to browse) your `ascat_data.json`, and explore.
 
-No data is sent to any server — everything runs in your browser.
-
 ---
 
 ## Running locally (no install required)
