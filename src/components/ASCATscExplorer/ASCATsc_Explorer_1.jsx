@@ -467,6 +467,7 @@ const DendrogramCanvas = memo(forwardRef(function DendrogramCanvas({ data, cellO
     const ctx = canvas.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
+    if (lightMode) { ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, width, height); }
 
     const yr = yRange || [0, nCells];
     const ySpan = yr[1] - yr[0] || 1;
@@ -536,6 +537,8 @@ const HeatmapPanel = memo(forwardRef(function HeatmapPanel({ data, cellOrder, ch
       composite.width = dW + hc.width;
       composite.height = hc.height;
       const ctx = composite.getContext("2d");
+      ctx.fillStyle = lightMode ? "#ffffff" : "#1a1a1a";
+      ctx.fillRect(0, 0, composite.width, composite.height);
       if (dc) ctx.drawImage(dc, 0, 0);
       ctx.drawImage(hc, dW, 0);
       const link = document.createElement("a");
@@ -543,7 +546,7 @@ const HeatmapPanel = memo(forwardRef(function HeatmapPanel({ data, cellOrder, ch
       link.href = composite.toDataURL("image/png");
       link.click();
     }
-  }), []);
+  }), [lightMode]);
 
   return (
     <div className="flex w-full">
