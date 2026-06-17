@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback, useDeferredValue, memo, forwardRef, useImperativeHandle } from "react";
 import * as d3 from "d3";
-import { cnColor, cnRGBDark, cnRGBLight, MAJOR_COLOR, MINOR_COLOR, CN_LEGEND_ENTRIES, AS_COLORS } from "../../constants/colors";
+import { cnColor, cnRGBDark, MAJOR_COLOR, MINOR_COLOR, CN_LEGEND_ENTRIES, AS_COLORS } from "../../constants/colors";
 import { generateDemoData } from "./demoData";
 
 /* Precomputed RGB lookup for allele-specific states (mirrors R's get_allele_specific_colors) */
@@ -473,7 +473,7 @@ const DendrogramCanvas = memo(forwardRef(function DendrogramCanvas({ data, cellO
     const xScale = h => PAD + ((maxH - h) / maxH) * (width - PAD * 2);
     const yScale = ci => MARGIN_TOP + ((ci - yr[0]) / ySpan) * plotH;
 
-    ctx.strokeStyle = lightMode ? "#94a3b8" : "#64748b";
+    ctx.strokeStyle = lightMode ? "#000000" : "#64748b";
     ctx.lineWidth = 0.8;
     ctx.beginPath();
     for (const s of segments) {
@@ -612,9 +612,9 @@ const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const bg    = lightMode ? "#ffffff" : "#1a1a1a";
-    const chrTx = lightMode ? "#475569" : "#a0a0a0";
+    const chrTx = lightMode ? "#1e293b" : "#a0a0a0";
     const chrBd = lightMode ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.08)";
-    const cnRGB = lightMode ? cnRGBLight : cnRGBDark;
+    const cnRGB = cnRGBDark;
 
     ctx.fillStyle = bg; ctx.fillRect(0, 0, cw, height);
 
@@ -731,9 +731,9 @@ const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, 
       let cy = MTT + 14;
       ctx.font = "bold 9px system-ui";
       for (const [cn, label] of cnEntries) {
-        ctx.fillStyle = cnColor(cn, lightMode);
+        ctx.fillStyle = cnColor(cn, false);
         ctx.fillRect(legX, cy, boxW, boxH);
-        ctx.fillStyle = cn === 2 ? (lightMode ? "#fff" : "#374151") : (lightMode ? "#1e293b" : "#e2e8f0");
+        ctx.fillStyle = cn === 2 ? "#374151" : "#e2e8f0";
         ctx.textAlign = "center";
         ctx.fillText(label, legX + boxW / 2, cy + 10);
         cy += boxH + gap;
