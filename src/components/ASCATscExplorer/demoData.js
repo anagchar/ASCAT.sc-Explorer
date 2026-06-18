@@ -127,9 +127,8 @@ export function generateDemoData(nCells = 200, nBinsPerChr = 80) {
       for(let i=1;i<nBins;i++){if(chrs[i]===chrs[i-1]&&!isNaN(logR[i])&&!isNaN(logR[i-1]))diffs.push(Math.abs(logR[i]-logR[i-1]));}
       mapd=d3.median(diffs)||0;
     }
-    const coverage = Math.round(vr.reduce((a,b)=>a+b,0) / nBins * 50 + Math.random()*20);
     const bins_with_cna = p.t.filter(v => Math.round(v) !== 2).length;
-    quality[c]={median_residual:mr,mapd,coverage,bins_with_cna};
+    quality[c]={median_residual:mr,mapd,bins_with_cna};
   });
   const order=[...cells].sort((a,b)=>{let da=0,db=0;for(let i=0;i<nBins;i+=10){da+=profiles[a][i];db+=profiles[b][i];}return da-db;});
   const dendro = buildDemoDendrogram(cells, profiles);

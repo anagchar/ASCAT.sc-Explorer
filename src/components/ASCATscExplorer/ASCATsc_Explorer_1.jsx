@@ -1273,6 +1273,7 @@ export default function App() {
   const [showDendro, setShowDendro] = useState(true);
   const [lightMode, setLightMode] = useState(false);
   const [cellTypeFilter, setCellTypeFilter] = useState("All");
+  const [sidebarVisible, setSidebarVisible] = useState(true);
 
   const hasAS = !!(data?.nMajor && Object.keys(data.nMajor).length > 0);
   const hasCi = !!(data?.ci && Object.keys(data.ci).length > 0);
@@ -1440,6 +1441,15 @@ export default function App() {
           {hasAS && <span className="text-xs px-2 py-0.5 rounded-full border" style={{ background: "rgba(181,134,13,0.15)", color: "#b5860d", borderColor: "rgba(181,134,13,0.3)" }}>Allele-specific</span>}
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={() => setSidebarVisible(v => !v)}
+            title={sidebarVisible ? "Hide panel" : "Show panel"}
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-colors"
+            style={{ background: lightMode ? "#e2e8f0" : "#333333", color: lightMode ? "#374151" : "#a0a0a0" }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>
+            </svg>
+            {sidebarVisible ? "Hide panel" : "Show panel"}
+          </button>
           <ThemeToggle lightMode={lightMode} onToggle={() => setLightMode(v => !v)} />
           <button onClick={() => { setData(null); setSelectedCell(null); setTab("heatmap"); setZoom(null); }}
             className="text-xs px-3 py-1.5 rounded-lg hover:bg-white/5 transition-colors" style={{ color: textSm }}>Load new data</button>
@@ -1448,7 +1458,7 @@ export default function App() {
 
       <div className="flex" style={{ height: "calc(100vh - 49px)" }}>
         {/* Sidebar */}
-        <aside className="flex-shrink-0 overflow-y-auto border-r" style={{ width: 280, borderColor: border, background: bgSide }}>
+        {sidebarVisible && <aside className="flex-shrink-0 overflow-y-auto border-r" style={{ width: 280, borderColor: border, background: bgSide }}>
           <div className="p-4 space-y-4">
             {/* Tabs */}
             <div className="flex gap-1 p-1 rounded-lg" style={{ background: bgItem }}>
@@ -1657,7 +1667,7 @@ export default function App() {
               <div><kbd className="px-1 py-0.5 rounded" style={{ background: bgItem, color: textXs }}>dblclick</kbd> / <kbd className="px-1 py-0.5 rounded" style={{ background: bgItem, color: textXs }}>Esc</kbd> Reset</div>
             </div>
           </div>
-        </aside>
+        </aside>}
 
         {/* Main */}
         <main className="flex-1 overflow-y-auto p-5" style={{ background: bg }}>
