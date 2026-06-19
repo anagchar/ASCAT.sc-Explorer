@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback, useDeferredValue, memo, forwardRef, useImperativeHandle } from "react";
+import jsPDF from "jspdf";
 import * as d3 from "d3";
 import { cnColor, cnRGBDark, MAJOR_COLOR, MINOR_COLOR, CN_LEGEND_ENTRIES, AS_COLORS } from "../../constants/colors";
 import { generateDemoData } from "./demoData";
@@ -528,7 +529,7 @@ const HeatmapPanel = memo(forwardRef(function HeatmapPanel({ data, cellOrder, ch
   const heatmapRef = useRef();
 
   useImperativeHandle(ref, () => ({
-    download(filename = "heatmap.png") {
+    download(basename = "heatmap", format = "png") {
       const hc = heatmapRef.current;
       const dc = dendroRef.current;
       if (!hc) return;
@@ -541,10 +542,19 @@ const HeatmapPanel = memo(forwardRef(function HeatmapPanel({ data, cellOrder, ch
       ctx.fillRect(0, 0, composite.width, composite.height);
       if (dc) ctx.drawImage(dc, 0, 0);
       ctx.drawImage(hc, dW, 0);
-      const link = document.createElement("a");
-      link.download = filename;
-      link.href = composite.toDataURL("image/png");
-      link.click();
+      if (format === "pdf") {
+        const cssW = (dc ? dc.offsetWidth : 0) + hc.offsetWidth;
+        const cssH = hc.offsetHeight;
+        const dataUrl = composite.toDataURL("image/png");
+        const pdf = new jsPDF({ orientation: cssW > cssH ? "landscape" : "portrait", unit: "px", format: [cssW, cssH], hotfixes: ["px_scaling"] });
+        pdf.addImage(dataUrl, "PNG", 0, 0, cssW, cssH);
+        pdf.save(basename + ".pdf");
+      } else {
+        const link = document.createElement("a");
+        link.download = basename + ".png";
+        link.href = composite.toDataURL("image/png");
+        link.click();
+      }
     }
   }), [lightMode]);
 
@@ -897,8 +907,33 @@ const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, 
 /* ═══════════════════════════════════════════════════════════════════════════
    PROFILE PLOT (canvas) — total CN & allele-specific
    ═══════════════════════════════════════════════════════════════════════════ */
-const ProfilePlot = memo(function ProfilePlot({ data, cellName, showRaw = true, height = 280, alleleMode = false, lightMode = false, showCi = true }) {
+const ProfilePlot = memo(forwardRef(function ProfilePlot({ data, cellName, showRaw = true, height = 280, alleleMode = false, lightMode = false, showCi = true }, ref) {
   const containerRef = useRef(); const canvasRef = useRef(); const [width, setWidth] = useState(800);
+  useImperativeHandle(ref, () => ({
+    download(basename = "cell_profile", format = "png") {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const out = document.createElement("canvas");
+      out.width = canvas.width; out.height = canvas.height;
+      const ctx = out.getContext("2d");
+      ctx.fillStyle = lightMode ? "#ffffff" : "#1a1a1a";
+      ctx.fillRect(0, 0, out.width, out.height);
+      ctx.drawImage(canvas, 0, 0);
+      if (format === "pdf") {
+        const cssW = canvas.offsetWidth;
+        const cssH = canvas.offsetHeight;
+        const dataUrl = out.toDataURL("image/png");
+        const pdf = new jsPDF({ orientation: cssW > cssH ? "landscape" : "portrait", unit: "px", format: [cssW, cssH], hotfixes: ["px_scaling"] });
+        pdf.addImage(dataUrl, "PNG", 0, 0, cssW, cssH);
+        pdf.save(basename + ".pdf");
+      } else {
+        const link = document.createElement("a");
+        link.download = basename + ".png";
+        link.href = out.toDataURL("image/png");
+        link.click();
+      }
+    }
+  }), [lightMode]);
   const ML = 48, MT = 24, MR = 20, MB = 36;
   useEffect(() => {
     const ro = new ResizeObserver(e => { const w = e[0]?.contentRect.width; if (w > 0) setWidth(Math.round(w)); });
@@ -1077,7 +1112,7 @@ const ProfilePlot = memo(function ProfilePlot({ data, cellName, showRaw = true, 
       <canvas ref={canvasRef} style={{ display: "block" }} />
     </div>
   );
-});
+}));
 
 /* ═══════════════════════════════════════════════════════════════════════════
    QUALITY SCATTER (D3/SVG)
@@ -1255,6 +1290,39 @@ const ThemeToggle = memo(function ThemeToggle({ lightMode, onToggle }) {
   );
 });
 
+function DownloadMenu({ onDownload, style }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef();
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (!menuRef.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+  return (
+    <div ref={menuRef} className="relative">
+      <button onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors"
+        style={style}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Download
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-1 rounded-md shadow-lg z-50 overflow-hidden" style={{ background: style.background, border: "1px solid rgba(255,255,255,0.1)", minWidth: "80px" }}>
+          {["PNG", "PDF"].map(fmt => (
+            <button key={fmt} onClick={() => { onDownload(fmt.toLowerCase()); setOpen(false); }}
+              className="w-full text-left text-xs px-3 py-1.5 hover:bg-blue-600/20 transition-colors"
+              style={{ color: style.color }}>
+              {fmt}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    MAIN APP
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -1263,6 +1331,7 @@ export default function App() {
   const [selectedCell, setSelectedCell] = useState(null);
   const [tab, setTab] = useState("heatmap");
   const heatmapPanelRef = useRef();
+  const profilePlotRef = useRef();
   const [search, setSearch] = useState("");
   const [thresholds, setThresholds] = useState({ residual: 1.5, mapd: 2.0, coverage: null, bins_with_cna: null });
   const [minSegmentMb, setMinSegmentMb] = useState(0);
@@ -1686,13 +1755,7 @@ export default function App() {
                   <span className="text-xs" style={{ color: textXs }}>{filteredCells.length} cells</span>
                   <input type="range" min="250" max="900" step="50" value={heatmapH} onChange={e => setHeatmapH(+e.target.value)}
                     className="w-20 h-1 rounded-full appearance-none cursor-pointer" style={{ accentColor: "#3b82f6", background: border }} />
-                  <button onClick={() => heatmapPanelRef.current?.download("heatmap.png")}
-                    className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors"
-                    style={{ background: bgItem, color: textSm }}
-                    title="Download heatmap as PNG">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-                    PNG
-                  </button>
+                  <DownloadMenu onDownload={fmt => heatmapPanelRef.current?.download("heatmap", fmt)} style={{ background: bgItem, color: textSm }} />
                 </div>
               </div>
               <div className="rounded-xl overflow-hidden border" style={{ borderColor: border, background: bg2 }}>
@@ -1725,9 +1788,10 @@ export default function App() {
                 <h2 className="text-sm font-semibold" style={{ color: textMd }}>Cell Profile</h2>
                 {selectedCell && <span className="text-xs font-mono text-blue-400 px-2 py-0.5 rounded-md" style={{ background: bgItem }}>{selectedCell}</span>}
                 {alleleMode && <span className="text-xs" style={{ color: "#b5860d" }}>(allele-specific)</span>}
+                <DownloadMenu onDownload={fmt => profilePlotRef.current?.download(selectedCell || "cell_profile", fmt)} style={{ background: bgItem, color: textSm }} />
               </div>
               <div className="rounded-xl border p-4" style={{ borderColor: border, background: bgCard }}>
-                <ProfilePlot data={data} cellName={selectedCell} height={360} alleleMode={alleleMode} lightMode={lightMode} showCi={showCi} />
+                <ProfilePlot ref={profilePlotRef} data={data} cellName={selectedCell} height={360} alleleMode={alleleMode} lightMode={lightMode} showCi={showCi} />
               </div>
               {selectedCell && (
                 <div className="rounded-xl border p-4" style={{ borderColor: border, background: lightMode ? bgCard : "#252525" }}>
