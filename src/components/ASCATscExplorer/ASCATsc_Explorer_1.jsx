@@ -1324,9 +1324,24 @@ function DownloadMenu({ onDownload, style }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   MOBILE DETECTION HOOK
+   ═══════════════════════════════════════════════════════════════════════════ */
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() => window.innerWidth < 768);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const handler = e => setMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return mobile;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    MAIN APP
    ═══════════════════════════════════════════════════════════════════════════ */
 export default function App() {
+  const isMobile = useIsMobile();
   const [data, setData] = useState(null);
   const [selectedCell, setSelectedCell] = useState(null);
   const [tab, setTab] = useState("heatmap");
@@ -1497,6 +1512,202 @@ export default function App() {
   const textSm = lightMode ? "#6b7280" : "#a0a0a0";
   const textXs = lightMode ? "#9ca3af" : "#707070";
 
+  /* ── MOBILE LAYOUT ─────────────────────────────────────────────────────── */
+  if (isMobile) {
+    return (
+      <div style={{ minHeight: "100dvh", background: bg, color: text, fontFamily: "'Inter',system-ui,sans-serif", display: "flex", flexDirection: "column" }}>
+
+        {/* Mobile header */}
+        <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: `1px solid ${border}`, background: bg2, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <img src={process.env.PUBLIC_URL + "/ASCATsc_logo.svg"} alt="ASCAT.sc logo" style={{ width: 28, height: 28, borderRadius: 6 }} />
+            <span style={{ fontWeight: 700, fontSize: 13, fontFamily: "'JetBrains Mono',monospace", color: text }}>ASCAT.sc</span>
+            <span style={{ fontSize: 11, padding: "1px 7px", borderRadius: 999, background: "rgba(16,185,129,0.1)", color: "#34d399", border: "1px solid rgba(16,185,129,0.2)" }}>
+              {totalCells} cells
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <ThemeToggle lightMode={lightMode} onToggle={() => setLightMode(v => !v)} />
+            <button onClick={() => setSidebarVisible(v => !v)}
+              title="Settings"
+              style={{ background: bgItem, border: "none", borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: textSm, display: "flex", alignItems: "center", gap: 4 }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        {/* Settings drawer overlay */}
+        {sidebarVisible && (
+          <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", flexDirection: "column" }}>
+            <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)" }} onClick={() => setSidebarVisible(false)} />
+            <div style={{ position: "relative", marginTop: "auto", background: bgSide, borderRadius: "18px 18px 0 0", maxHeight: "80dvh", overflowY: "auto", padding: 16, zIndex: 1 }}>
+              <div style={{ width: 36, height: 4, borderRadius: 2, background: border, margin: "0 auto 16px" }} />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: text }}>Settings</span>
+                <button onClick={() => setSidebarVisible(false)} style={{ background: "none", border: "none", cursor: "pointer", color: textSm, padding: 4 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+              </div>
+
+              {/* Toggles */}
+              {(hasAS || hasDendro) && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: textSm, marginBottom: 8 }}>Display</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {hasAS && (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 8, background: bgItem }}>
+                        <span style={{ fontSize: 13, color: textMd }}>Allele-specific</span>
+                        <button onClick={() => setAlleleMode(!alleleMode)} style={{ position: "relative", width: 36, height: 20, borderRadius: 10, border: "none", cursor: "pointer", background: alleleMode ? "#b5860d" : "#4b5563", transition: "background 0.2s" }}>
+                          <span style={{ position: "absolute", top: 2, left: alleleMode ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.4)", transition: "left 0.2s ease-in-out" }} />
+                        </button>
+                      </div>
+                    )}
+                    {hasDendro && (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 8, background: bgItem }}>
+                        <span style={{ fontSize: 13, color: textMd }}>Dendrogram</span>
+                        <button onClick={() => setShowDendro(!showDendro)} style={{ position: "relative", width: 36, height: 20, borderRadius: 10, border: "none", cursor: "pointer", background: showDendro ? "#b5860d" : "#4b5563", transition: "background 0.2s" }}>
+                          <span style={{ position: "absolute", top: 2, left: showDendro ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.4)", transition: "left 0.2s ease-in-out" }} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Quality filters */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: textSm, marginBottom: 8 }}>Quality Filters</div>
+                {[["Max Residual", "residual", 3], ["Max MAPD", "mapd", 4]].map(([label, key, max]) => (
+                  <div key={key} style={{ marginBottom: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ color: textSm }}>{label}</span>
+                      <span style={{ fontFamily: "monospace", color: textMd }}>{thresholds[key].toFixed(2)}</span>
+                    </div>
+                    <input type="range" min="0" max={max} step="0.05" value={thresholds[key]}
+                      onChange={e => setThresholds(t => ({ ...t, [key]: +e.target.value }))}
+                      style={{ width: "100%", accentColor: "#3b82f6" }} />
+                  </div>
+                ))}
+                <div style={{ fontSize: 12, color: textXs }}>{filteredCells.length} / {totalCells} cells ({passRate}%)</div>
+              </div>
+
+              {/* Cell search */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: textSm, marginBottom: 8 }}>Search Cell</div>
+                <input type="text" placeholder="Barcode..." value={search} onChange={e => setSearch(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${border}`, background: bgItem, color: text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              </div>
+
+              {/* Cell list */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: textSm, marginBottom: 8 }}>Cell List</div>
+                <div style={{ maxHeight: 160, overflowY: "auto", borderRadius: 8, border: `1px solid ${border}`, background: lightMode ? "#f8fafc" : "#222" }}>
+                  {filteredCells.length === 0
+                    ? <div style={{ padding: 12, textAlign: "center", fontSize: 12, color: textXs }}>No cells match</div>
+                    : filteredCells.map(c => (
+                      <button key={c} onClick={() => { setSelectedCell(c); setSidebarVisible(false); setTab("profile"); }}
+                        style={{ width: "100%", textAlign: "left", padding: "8px 12px", fontSize: 12, fontFamily: "monospace", background: c === selectedCell ? "rgba(59,130,246,0.15)" : "transparent", color: c === selectedCell ? "#60a5fa" : textSm, border: "none", cursor: "pointer", display: "block" }}>
+                        {c}
+                      </button>
+                    ))}
+                </div>
+              </div>
+
+              {/* Nav buttons */}
+              <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                <button onClick={() => navigateCell(-1)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: lightMode ? "#e2e8f0" : "#b5860d", color: lightMode ? "#374151" : "#1a1a1a", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>↑ Prev</button>
+                <button onClick={() => navigateCell(1)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: lightMode ? "#e2e8f0" : "#b5860d", color: lightMode ? "#374151" : "#1a1a1a", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Next ↓</button>
+              </div>
+
+              <button onClick={() => { setData(null); setSelectedCell(null); setTab("heatmap"); setZoom(null); setSidebarVisible(false); }}
+                style={{ width: "100%", padding: "10px 0", borderRadius: 8, border: `1px solid ${border}`, background: "transparent", color: textSm, fontSize: 13, cursor: "pointer" }}>
+                Load new data
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Main content */}
+        <div style={{ flex: 1, overflowY: "auto", padding: 12 }}>
+          {tab === "heatmap" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: textMd }}>{alleleMode ? "Allele-Specific Heatmap" : "CN Heatmap"}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {zoom && <button onClick={() => setZoom(null)} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "rgba(59,130,246,0.2)", color: "#93c5fd", border: "none", cursor: "pointer" }}>Reset zoom</button>}
+                  <DownloadMenu onDownload={fmt => heatmapPanelRef.current?.download("heatmap", fmt)} style={{ background: bgItem, color: textSm }} />
+                </div>
+              </div>
+              <div style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${border}`, background: bg2 }}>
+                <HeatmapPanel ref={heatmapPanelRef} data={heatmapData} cellOrder={filteredCells} chrInfo={data.chr_info}
+                  selectedCell={selectedCell} onCellClick={setSelectedCell} height={Math.max(280, Math.min(500, filteredCells.length * 2 + 60))}
+                  alleleMode={alleleMode} zoom={zoom} onZoomChange={setZoom} showDendro={showDendro} lightMode={lightMode} />
+              </div>
+              {selectedCell && (
+                <div style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 12, background: bgCard }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: textSm, marginBottom: 6 }}>Profile — <span style={{ color: "#60a5fa", fontFamily: "monospace" }}>{selectedCell}</span></div>
+                  <ProfilePlot data={data} cellName={selectedCell} height={180} alleleMode={alleleMode} lightMode={lightMode} showCi={showCi} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === "profile" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: textMd }}>Cell Profile</span>
+                <DownloadMenu onDownload={fmt => profilePlotRef.current?.download(selectedCell || "cell_profile", fmt)} style={{ background: bgItem, color: textSm }} />
+              </div>
+              {selectedCell && <div style={{ fontSize: 12, fontFamily: "monospace", color: "#60a5fa", padding: "4px 10px", borderRadius: 6, background: bgItem, alignSelf: "flex-start" }}>{selectedCell}</div>}
+              <div style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 12, background: bgCard }}>
+                <ProfilePlot ref={profilePlotRef} data={data} cellName={selectedCell} height={300} alleleMode={alleleMode} lightMode={lightMode} showCi={showCi} />
+              </div>
+              {selectedCell && (
+                <div style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 12, background: bgCard }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: textSm, marginBottom: 10 }}>Quality Metrics</div>
+                  <CellMetrics data={data} cellName={selectedCell} thresholds={thresholds} lightMode={lightMode} effectiveQuality={effectiveQuality} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === "quality" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: textMd }}>Quality Overview</span>
+              <div style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 12, background: bgCard }}>
+                <div style={{ fontSize: 11, color: textSm, marginBottom: 8 }}>MAPD vs Median Residual</div>
+                <QualityScatter data={data} thresholds={thresholds} selectedCell={selectedCell} onCellClick={setSelectedCell} height={320} lightMode={lightMode} />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                {[["Total", totalCells, "text-blue-400", "#60a5fa"], ["Pass", filteredCells.length, "text-emerald-400", "#34d399"], ["Rate", passRate + "%", "text-blue-400", "#60a5fa"]].map(([l, v, , c]) => (
+                  <div key={l} style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 10, background: bgCard }}>
+                    <div style={{ fontSize: 10, color: textXs, marginBottom: 4 }}>{l}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "monospace", color: c }}>{v}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Bottom tab bar */}
+        <nav style={{ display: "flex", borderTop: `1px solid ${border}`, background: bg2, flexShrink: 0 }}>
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              style={{ flex: 1, padding: "12px 0 10px", fontSize: 12, fontWeight: 600, border: "none", background: "transparent", cursor: "pointer",
+                color: tab === t.id ? "#3b82f6" : textSm,
+                borderTop: tab === t.id ? "2px solid #3b82f6" : "2px solid transparent" }}>
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+    );
+  }
+
+  /* ── DESKTOP LAYOUT (unchanged) ─────────────────────────────────────────── */
   return (
     <div className="min-h-screen" style={{ background: bg, color: text, fontFamily: "'Inter',system-ui,sans-serif" }}>
       {/* Header */}
