@@ -336,29 +336,29 @@ function UploadScreen({onLoad}){
   const[dragging,setDragging]=useState(false);const[error,setError]=useState(null);const[loading,setLoading]=useState(false);const fileRef=useRef();
   const handleFile=(file)=>{if(!file)return;if(file.name.endsWith(".rds")||file.name.endsWith(".RDS")){setError("This is an .rds file — convert to JSON first.\n\nIn R:\n  source(\"R/ascatsc_to_web.R\")\n  rds_to_web(\""+file.name+"\", \"ascat_data.json\")\n\nThen upload the resulting ascat_data.json here.\nSee the README at https://github.com/anagchar/ASCAT.sc-Explorer for details.");return;}setLoading(true);setError(null);const reader=new FileReader();reader.onload=e=>{try{const d=JSON.parse(e.target.result);if(!d.bins||!d.profiles)throw new Error("Invalid JSON: missing 'bins' or 'profiles'.");if(!d.chr_info)throw new Error("Missing 'chr_info'.");onLoad(normalizeLoadedData(d));}catch(err){setError(err.message);setLoading(false);}};reader.onerror=()=>{setError("Failed to read file");setLoading(false);};reader.readAsText(file);};
   return(
-    <div className="min-h-screen flex items-center justify-center" style={{background:"linear-gradient(135deg,#1a1a1a 0%,#222222 50%,#1a1a1a 100%)"}}>
-      <div className="w-full max-w-xl mx-4">
+    <div className="min-h-screen flex items-center justify-center" style={{background:"#1c1c1e",fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif"}}>
+      <div className="w-full max-w-lg mx-4">
         <div className="text-center mb-10">
-          <div className="flex items-center justify-center mb-3">
-            <img src={process.env.PUBLIC_URL + "/ASCATsc_logo.svg"} alt="ASCAT.sc logo" className="h-16" />
+          <div className="flex items-center justify-center mb-4">
+            <img src={process.env.PUBLIC_URL + "/ASCATsc_logo.svg"} alt="ASCAT.sc logo" className="h-14" />
           </div>
-          <p className="text-gray-400 text-sm">Single-cell copy number visualization</p>
+          <p style={{color:"rgba(235,235,245,0.45)",fontSize:14,letterSpacing:"-0.01em"}}>Single-cell copy number visualization</p>
         </div>
-        <div className={`border-2 border-dashed rounded-2xl p-12 text-center transition-all cursor-pointer ${dragging?"border-blue-400 bg-blue-500/10":"border-gray-600 hover:border-gray-500 bg-white/[0.02]"}`}
+        <div className={`border rounded-3xl p-12 text-center transition-all cursor-pointer ${dragging?"border-[#0A84FF] bg-[#0A84FF]/10":"border-white/[0.1] hover:border-white/20 bg-white/[0.02]"}`}
           onDragOver={e=>{e.preventDefault();setDragging(true);}} onDragLeave={()=>setDragging(false)}
           onDrop={e=>{e.preventDefault();setDragging(false);handleFile(e.dataTransfer.files[0]);}} onClick={()=>fileRef.current?.click()}>
           <input ref={fileRef} type="file" accept=".json,.gz,.rds" className="hidden" onChange={e=>handleFile(e.target.files[0])}/>
-          {loading?(<div className="text-blue-400"><div className="inline-block w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full animate-spin mb-3"/><p>Loading...</p></div>):(
-            <><svg className="mx-auto mb-4 text-gray-500" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5-5 5 5M12 5v12"/></svg>
-              <p className="text-gray-300 text-lg mb-1">Drop <code className="text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded text-sm">ascat_data.json</code> here</p></>)}
+          {loading?(<div className="text-[#0A84FF]"><div className="inline-block w-7 h-7 border-2 border-[#0A84FF] border-t-transparent rounded-full animate-spin mb-3"/><p className="text-sm">Loading…</p></div>):(
+            <><svg className="mx-auto mb-4" style={{color:"rgba(235,235,245,0.35)"}} width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5-5 5 5M12 5v12"/></svg>
+              <p style={{color:"rgba(235,235,245,0.85)",fontSize:15}} className="mb-1">Drop <code className="text-[#0A84FF] bg-[#0A84FF]/10 px-2 py-0.5 rounded-md text-sm">ascat_data.json</code> here</p></>)}
         </div>
-        {error&&<div className="mt-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm whitespace-pre-wrap font-mono leading-relaxed">{error}</div>}
+        {error&&<div className="mt-4 p-4 bg-[#FF3B30]/10 border border-[#FF3B30]/25 rounded-2xl text-[#FF3B30] text-sm whitespace-pre-wrap font-mono leading-relaxed">{error}</div>}
         <div className="mt-6 text-center">
-          <button onClick={()=>onLoad(generateDemoData())} className="text-sm text-gray-500 hover:text-blue-400 transition-colors underline underline-offset-4 decoration-gray-700 hover:decoration-blue-400">Load demo dataset (200 cells, allele-specific)</button>
+          <button onClick={()=>onLoad(generateDemoData())} className="text-sm transition-colors" style={{color:"rgba(235,235,245,0.45)"}} onMouseEnter={e=>e.currentTarget.style.color="#0A84FF"} onMouseLeave={e=>e.currentTarget.style.color="rgba(235,235,245,0.45)"}>Load demo dataset (200 cells, allele-specific)</button>
         </div>
-        <div className="mt-8 rounded-xl p-4 text-left" style={{background:"rgba(255,255,255,0.03)",border:"1px solid #3a3a3a"}}>
-          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">How to export from R</div>
-          <pre className="text-xs text-gray-500 font-mono leading-relaxed overflow-x-auto">{`source("R/ascatsc_to_web.R")
+        <div className="mt-8 rounded-2xl p-4 text-left" style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)"}}>
+          <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{color:"rgba(235,235,245,0.4)"}}>How to export from R</div>
+          <pre className="text-xs font-mono leading-relaxed overflow-x-auto" style={{color:"rgba(235,235,245,0.5)"}}>{`source("R/ascatsc_to_web.R")
 rds_to_web("your_results.rds", "ascat_data.json")`}</pre>
         </div>
       </div>
@@ -475,7 +475,7 @@ const DendrogramCanvas = memo(forwardRef(function DendrogramCanvas({ data, cellO
     const xScale = h => PAD + ((maxH - h) / maxH) * (width - PAD * 2);
     const yScale = ci => MARGIN_TOP + ((ci - yr[0]) / ySpan) * plotH;
 
-    ctx.strokeStyle = lightMode ? "#000000" : "#64748b";
+    ctx.strokeStyle = lightMode ? "#3a3a3c" : "#64748b";
     ctx.lineWidth = 0.8;
     ctx.beginPath();
     for (const s of segments) {
@@ -538,7 +538,7 @@ const HeatmapPanel = memo(forwardRef(function HeatmapPanel({ data, cellOrder, ch
       composite.width = dW + hc.width;
       composite.height = hc.height;
       const ctx = composite.getContext("2d");
-      ctx.fillStyle = lightMode ? "#ffffff" : "#1a1a1a";
+      ctx.fillStyle = lightMode ? "#ffffff" : "#1c1c1e";
       ctx.fillRect(0, 0, composite.width, composite.height);
       if (dc) ctx.drawImage(dc, 0, 0);
       ctx.drawImage(hc, dW, 0);
@@ -624,7 +624,7 @@ const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, 
     const ctx = canvas.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    const bg    = lightMode ? "#ffffff" : "#1a1a1a";
+    const bg    = lightMode ? "#ffffff" : "#1c1c1e";
     const chrTx = lightMode ? "#1e293b" : "#a0a0a0";
     const chrBd = lightMode ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.08)";
     const cnRGB = cnRGBDark;
@@ -803,7 +803,7 @@ const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, 
       if (idx >= 0) {
         const y0 = toPxY(idx), y1 = toPxY(idx + 1);
         if (y1 > MTT && y0 < MTT + plotH) {
-          ctx.strokeStyle = "#f97316"; ctx.lineWidth = 2;
+          ctx.strokeStyle = "#FF9500"; ctx.lineWidth = 2;
           ctx.strokeRect(ML + 1, y0, plotW - 2, y1 - y0);
         }
       }
@@ -812,8 +812,8 @@ const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, 
     if (b && isDragging.current) {
       const x0 = Math.min(b.sx, b.cx), y0 = Math.min(b.sy, b.cy);
       const w = Math.abs(b.cx - b.sx), h = Math.abs(b.cy - b.sy);
-      ctx.fillStyle = "rgba(59,130,246,0.12)";
-      ctx.strokeStyle = "rgba(59,130,246,0.6)"; ctx.lineWidth = 1.5;
+      ctx.fillStyle = "rgba(10,132,255,0.12)";
+      ctx.strokeStyle = "rgba(10,132,255,0.6)"; ctx.lineWidth = 1.5;
       ctx.fillRect(x0, y0, w, h); ctx.strokeRect(x0, y0, w, h);
     }
   }, [cw, height, selectedCell, cellOrder, nCells, toPxY, plotW, plotH, MTT, ML]);
@@ -891,7 +891,7 @@ const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, 
     return () => canvas.removeEventListener("wheel", handleWheel);
   }, [handleWheel]);
 
-  const canvasBg = lightMode ? "#f8fafc" : "#1a1a1a";
+  const canvasBg = lightMode ? "#f8fafc" : "#1c1c1e";
   return (
     <div ref={containerRef} className="w-full relative" style={{ background: canvasBg }}>
       <canvas ref={dataCanvasRef} style={{ width: cw, height, display: "block", borderRadius: "8px" }} />
@@ -916,7 +916,7 @@ const ProfilePlot = memo(forwardRef(function ProfilePlot({ data, cellName, showR
       const out = document.createElement("canvas");
       out.width = canvas.width; out.height = canvas.height;
       const ctx = out.getContext("2d");
-      ctx.fillStyle = lightMode ? "#ffffff" : "#1a1a1a";
+      ctx.fillStyle = lightMode ? "#ffffff" : "#1c1c1e";
       ctx.fillRect(0, 0, out.width, out.height);
       ctx.drawImage(canvas, 0, 0);
       if (format === "pdf") {
@@ -963,20 +963,34 @@ const ProfilePlot = memo(forwardRef(function ProfilePlot({ data, cellName, showR
     const textCol = lightMode ? "#374151" : "#94a3b8";
     const axisCol = lightMode ? "#9ca3af" : "#374151";
     const refCol  = lightMode ? "#9ca3af" : "#4b5563";
-    const bgEven  = lightMode ? "rgba(0,0,0,0.03)" : "rgba(255,255,255,0.02)";
-    const bgOdd   = lightMode ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.05)";
-    const rawCol  = lightMode ? "rgba(156,163,175,0.4)" : "rgba(209,213,219,0.4)";
+    const plotBg  = lightMode ? "#eef0f3" : "#161618";   // recessed backdrop — distinguishes the chart from its white card
+    const bandTint= lightMode ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.045)"; // odd chromosomes lighten the backdrop
+    const chrDiv  = lightMode ? "rgba(0,0,0,0.1)" : "rgba(255,255,255,0.1)";
+    const rawCol  = lightMode ? "rgba(107,114,128,0.45)" : "rgba(209,213,219,0.4)";
 
-    // Background
+    // Background — flush with the surrounding white/dark card
     ctx.fillStyle = lightMode ? "#ffffff" : "transparent";
     ctx.clearRect(0, 0, width, height);
     if (lightMode) ctx.fillRect(0, 0, width, height);
 
-    // Alternating chr backgrounds
+    // Recessed plot backdrop, framed and clearly separated from the card around it
+    ctx.fillStyle = plotBg;
+    ctx.fillRect(ML, MT, plotW, plotH);
+
+    // Alternating chromosome bins — tinted bands + crisp divider at each boundary
     data.chr_info.forEach(({ start_cum, end_cum }, i) => {
-      ctx.fillStyle = i % 2 === 0 ? bgEven : bgOdd;
-      ctx.fillRect(xS(start_cum), MT, xS(end_cum) - xS(start_cum), plotH);
+      if (i % 2 === 1) {
+        ctx.fillStyle = bandTint;
+        ctx.fillRect(xS(start_cum), MT, xS(end_cum) - xS(start_cum), plotH);
+      }
     });
+    ctx.strokeStyle = chrDiv; ctx.lineWidth = 1;
+    data.chr_info.forEach(({ start_cum }, i) => {
+      if (i === 0) return;
+      const px = Math.round(xS(start_cum)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(px, MT); ctx.lineTo(px, MT + plotH); ctx.stroke();
+    });
+    ctx.strokeRect(Math.round(ML) + 0.5, Math.round(MT) + 0.5, Math.round(plotW) - 1, Math.round(plotH) - 1);
 
     // Reference lines (dashed)
     ctx.strokeStyle = refCol; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
@@ -1152,11 +1166,11 @@ const QualityScatter = memo(function QualityScatter({ data, thresholds, selected
     if (lightMode) { ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, width, height); }
 
     // Pass zone
-    ctx.fillStyle = "rgba(16,185,129,0.06)";
+    ctx.fillStyle = "rgba(52,199,89,0.06)";
     ctx.fillRect(ML, yS(thresholds.residual), xS(thresholds.mapd) - ML, plotH - (yS(thresholds.residual) - MT));
 
     // Threshold lines
-    ctx.strokeStyle = "rgba(239,68,68,0.7)"; ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
+    ctx.strokeStyle = "rgba(255,59,48,0.7)"; ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
     ctx.beginPath(); ctx.moveTo(xS(thresholds.mapd), MT); ctx.lineTo(xS(thresholds.mapd), MT + plotH); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(ML, yS(thresholds.residual)); ctx.lineTo(ML + plotW, yS(thresholds.residual)); ctx.stroke();
     ctx.setLineDash([]);
@@ -1188,9 +1202,9 @@ const QualityScatter = memo(function QualityScatter({ data, thresholds, selected
       }
       ctx.globalAlpha = 1;
     };
-    drawGroup(groups.fail, "#ef4444", 2.5, 0.5, null);
-    drawGroup(groups.pass, "#3b82f6", 2.5, 0.5, null);
-    drawGroup(groups.sel,  "#f97316", 5,   1,   "#ffffff");
+    drawGroup(groups.fail, "#FF3B30", 2.5, 0.5, null);
+    drawGroup(groups.pass, "#0A84FF", 2.5, 0.5, null);
+    drawGroup(groups.sel,  "#FF9500", 5,   1,   "#ffffff");
 
     // Axes
     ctx.strokeStyle = axisCol; ctx.lineWidth = 1;
@@ -1245,14 +1259,17 @@ const CellMetrics = memo(function CellMetrics({ data, cellName, thresholds, ligh
   const pM = q.mapd <= thresholds.mapd;
   const pC = thresholds.coverage == null || q.coverage == null || q.coverage >= thresholds.coverage;
   const pB = thresholds.bins_with_cna == null || q.bins_with_cna == null || q.bins_with_cna <= thresholds.bins_with_cna;
-  const boxBg = lightMode ? "#f1f5f9" : "#1f1f1f";
-  const accent = "#b5860d";
+  const boxBg = lightMode ? "#f5f5f7" : "#1c1c1e";
+  const labelCol = lightMode ? "rgba(60,60,67,0.6)" : "rgba(235,235,245,0.55)";
+  const valueCol = lightMode ? "#1d1d1f" : "#f5f5f7";
+  const passCol = "#34C759", failCol = "#FF3B30";
   const MetricBox = ({ label, val, pass, thresh, fmt = v => v?.toFixed(3) ?? "—", suffix = "" }) => (
-    <div className="rounded-lg p-3 border" style={{ background: boxBg, borderColor: lightMode ? "#e2e8f0" : "#313131" }}>
-      <div className="text-xs mb-1" style={{ color: lightMode ? "#6b7280" : accent }}>{label}</div>
-      <div className="text-lg font-semibold font-mono" style={{ color: lightMode ? (pass ? "#34d399" : "#f87171") : accent }}>{fmt(val)}{suffix}</div>
-      <div className="text-xs mt-1" style={{ color: lightMode ? (pass ? "#059669" : "#dc2626") : accent }}>
-        {pass ? "PASS" : "FAIL"} ({thresh != null ? `≤ ${thresh.toFixed ? thresh.toFixed(2) : thresh}` : "—"})
+    <div className="rounded-2xl p-3" style={{ background: boxBg }}>
+      <div className="text-xs mb-1" style={{ color: labelCol }}>{label}</div>
+      <div className="text-lg font-semibold font-mono" style={{ color: valueCol }}>{fmt(val)}{suffix}</div>
+      <div className="text-xs mt-1.5 flex items-center gap-1.5" style={{ color: pass ? passCol : failCol }}>
+        <span style={{ width: 5, height: 5, borderRadius: "50%", background: pass ? passCol : failCol, flexShrink: 0 }} />
+        {pass ? "Pass" : "Fail"} ({thresh != null ? `≤ ${thresh.toFixed ? thresh.toFixed(2) : thresh}` : "—"})
       </div>
     </div>
   );
@@ -1280,8 +1297,8 @@ const ThemeToggle = memo(function ThemeToggle({ lightMode, onToggle }) {
   return (
     <button onClick={onToggle}
       title={lightMode ? "Switch to dark mode" : "Switch to light mode"}
-      className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-colors"
-      style={{ background: lightMode ? "#e2e8f0" : "#333333", color: lightMode ? "#374151" : "#a0a0a0" }}>
+      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full transition-colors"
+      style={{ background: lightMode ? "#e8e8ed" : "#3a3a3c", color: lightMode ? "rgba(60,60,67,0.78)" : "rgba(235,235,245,0.7)" }}>
       {lightMode
         ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
         : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>}
@@ -1302,17 +1319,17 @@ function DownloadMenu({ onDownload, style }) {
   return (
     <div ref={menuRef} className="relative">
       <button onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors"
+        className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-full transition-colors"
         style={style}>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
         Download
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
       </button>
       {open && (
-        <div className="absolute right-0 mt-1 rounded-md shadow-lg z-50 overflow-hidden" style={{ background: style.background, border: "1px solid rgba(255,255,255,0.1)", minWidth: "80px" }}>
+        <div className="absolute right-0 mt-1.5 rounded-2xl shadow-lg z-50 overflow-hidden" style={{ background: style.background, border: "1px solid rgba(127,127,127,0.18)", minWidth: "90px" }}>
           {["PNG", "PDF"].map(fmt => (
             <button key={fmt} onClick={() => { onDownload(fmt.toLowerCase()); setOpen(false); }}
-              className="w-full text-left text-xs px-3 py-1.5 hover:bg-blue-600/20 transition-colors"
+              className="w-full text-left text-xs px-3 py-2 hover:bg-[#0A84FF]/15 transition-colors"
               style={{ color: style.color }}>
               {fmt}
             </button>
@@ -1500,29 +1517,30 @@ export default function App() {
   const TABS = [{ id: "heatmap", label: "Heatmap" }, { id: "profile", label: "Profile" }, { id: "quality", label: "QC" }];
   const isZoomed = zoom !== null;
 
-  // Theme-aware style helpers
-  const bg     = lightMode ? "#f8fafc" : "#1a1a1a";
-  const bg2    = lightMode ? "#ffffff" : "#222222";
-  const bgCard = lightMode ? "#ffffff" : "#2a2a2a";
-  const bgSide = lightMode ? "#f1f5f9" : "#1a1a1a";
-  const bgItem = lightMode ? "#e2e8f0" : "#333333";
-  const border = lightMode ? "#e2e8f0" : "#3a3a3a";
-  const text   = lightMode ? "#1e293b" : "#e2e8f0";
-  const textMd = lightMode ? "#374151" : "#d1d5db";
-  const textSm = lightMode ? "#6b7280" : "#a0a0a0";
-  const textXs = lightMode ? "#9ca3af" : "#707070";
+  // Theme-aware style helpers — Apple system-color palette
+  const bg     = lightMode ? "#f5f5f7" : "#1c1c1e";
+  const bg2    = lightMode ? "#ffffff" : "#242426";
+  const bgCard = lightMode ? "#ffffff" : "#242426";
+  const bgSide = lightMode ? "#f5f5f7" : "#1c1c1e";
+  const bgItem = lightMode ? "#e8e8ed" : "#3a3a3c";
+  const border = lightMode ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.08)";
+  const text   = lightMode ? "#1d1d1f" : "#f5f5f7";
+  const textMd = lightMode ? "rgba(60,60,67,0.78)" : "rgba(235,235,245,0.78)";
+  const textSm = lightMode ? "rgba(60,60,67,0.6)"  : "rgba(235,235,245,0.55)";
+  const textXs = lightMode ? "rgba(60,60,67,0.4)"  : "rgba(235,235,245,0.35)";
+  const accent2 = "#FF9500";  // systemOrange — selection / allele-specific emphasis
 
   /* ── MOBILE LAYOUT ─────────────────────────────────────────────────────── */
   if (isMobile) {
     return (
-      <div style={{ minHeight: "100dvh", background: bg, color: text, fontFamily: "'Inter',system-ui,sans-serif", display: "flex", flexDirection: "column" }}>
+      <div style={{ minHeight: "100dvh", background: bg, color: text, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif", display: "flex", flexDirection: "column" }}>
 
         {/* Mobile header */}
         <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: `1px solid ${border}`, background: bg2, flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <img src={process.env.PUBLIC_URL + "/ASCATsc_logo.svg"} alt="ASCAT.sc logo" style={{ width: 28, height: 28, borderRadius: 6 }} />
-            <span style={{ fontWeight: 700, fontSize: 13, fontFamily: "'JetBrains Mono',monospace", color: text }}>ASCAT.sc</span>
-            <span style={{ fontSize: 11, padding: "1px 7px", borderRadius: 999, background: "rgba(16,185,129,0.1)", color: "#34d399", border: "1px solid rgba(16,185,129,0.2)" }}>
+            <img src={process.env.PUBLIC_URL + "/ASCATsc_logo.svg"} alt="ASCAT.sc logo" style={{ width: 26, height: 26, borderRadius: 6 }} />
+            <span style={{ fontWeight: 600, fontSize: 14, letterSpacing: "-0.01em", color: text }}>ASCAT.sc</span>
+            <span style={{ fontSize: 11, padding: "1px 7px", borderRadius: 999, background: bgItem, color: textSm }}>
               {totalCells} cells
             </span>
           </div>
@@ -1559,7 +1577,7 @@ export default function App() {
                     {hasAS && (
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 8, background: bgItem }}>
                         <span style={{ fontSize: 13, color: textMd }}>Allele-specific</span>
-                        <button onClick={() => setAlleleMode(!alleleMode)} style={{ position: "relative", width: 36, height: 20, borderRadius: 10, border: "none", cursor: "pointer", background: alleleMode ? "#b5860d" : "#4b5563", transition: "background 0.2s" }}>
+                        <button onClick={() => setAlleleMode(!alleleMode)} style={{ position: "relative", width: 36, height: 20, borderRadius: 10, border: "none", cursor: "pointer", background: alleleMode ? "#34C759" : (lightMode ? "#d1d1d6" : "#39393d"), transition: "background 0.2s" }}>
                           <span style={{ position: "absolute", top: 2, left: alleleMode ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.4)", transition: "left 0.2s ease-in-out" }} />
                         </button>
                       </div>
@@ -1567,7 +1585,7 @@ export default function App() {
                     {hasDendro && (
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 8, background: bgItem }}>
                         <span style={{ fontSize: 13, color: textMd }}>Dendrogram</span>
-                        <button onClick={() => setShowDendro(!showDendro)} style={{ position: "relative", width: 36, height: 20, borderRadius: 10, border: "none", cursor: "pointer", background: showDendro ? "#b5860d" : "#4b5563", transition: "background 0.2s" }}>
+                        <button onClick={() => setShowDendro(!showDendro)} style={{ position: "relative", width: 36, height: 20, borderRadius: 10, border: "none", cursor: "pointer", background: showDendro ? "#34C759" : (lightMode ? "#d1d1d6" : "#39393d"), transition: "background 0.2s" }}>
                           <span style={{ position: "absolute", top: 2, left: showDendro ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.4)", transition: "left 0.2s ease-in-out" }} />
                         </button>
                       </div>
@@ -1587,7 +1605,7 @@ export default function App() {
                     </div>
                     <input type="range" min="0" max={max} step="0.05" value={thresholds[key]}
                       onChange={e => setThresholds(t => ({ ...t, [key]: +e.target.value }))}
-                      style={{ width: "100%", accentColor: "#3b82f6" }} />
+                      style={{ width: "100%", accentColor: "#0A84FF" }} />
                   </div>
                 ))}
                 <div style={{ fontSize: 12, color: textXs }}>{filteredCells.length} / {totalCells} cells ({passRate}%)</div>
@@ -1603,12 +1621,12 @@ export default function App() {
               {/* Cell list */}
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: textSm, marginBottom: 8 }}>Cell List</div>
-                <div style={{ maxHeight: 160, overflowY: "auto", borderRadius: 8, border: `1px solid ${border}`, background: lightMode ? "#f8fafc" : "#222" }}>
+                <div style={{ maxHeight: 160, overflowY: "auto", borderRadius: 8, border: `1px solid ${border}`, background: lightMode ? "#f8fafc" : "#1c1c1e" }}>
                   {filteredCells.length === 0
                     ? <div style={{ padding: 12, textAlign: "center", fontSize: 12, color: textXs }}>No cells match</div>
                     : filteredCells.map(c => (
                       <button key={c} onClick={() => { setSelectedCell(c); setSidebarVisible(false); setTab("profile"); }}
-                        style={{ width: "100%", textAlign: "left", padding: "8px 12px", fontSize: 12, fontFamily: "monospace", background: c === selectedCell ? "rgba(59,130,246,0.15)" : "transparent", color: c === selectedCell ? "#60a5fa" : textSm, border: "none", cursor: "pointer", display: "block" }}>
+                        style={{ width: "100%", textAlign: "left", padding: "8px 12px", fontSize: 12, fontFamily: "monospace", background: c === selectedCell ? "rgba(10,132,255,0.15)" : "transparent", color: c === selectedCell ? "#0A84FF" : textSm, border: "none", cursor: "pointer", display: "block" }}>
                         {c}
                       </button>
                     ))}
@@ -1617,8 +1635,8 @@ export default function App() {
 
               {/* Nav buttons */}
               <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                <button onClick={() => navigateCell(-1)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: lightMode ? "#e2e8f0" : "#b5860d", color: lightMode ? "#374151" : "#1a1a1a", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>↑ Prev</button>
-                <button onClick={() => navigateCell(1)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: lightMode ? "#e2e8f0" : "#b5860d", color: lightMode ? "#374151" : "#1a1a1a", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Next ↓</button>
+                <button onClick={() => navigateCell(-1)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: bgItem, color: text, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>↑ Prev</button>
+                <button onClick={() => navigateCell(1)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: bgItem, color: text, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Next ↓</button>
               </div>
 
               <button onClick={() => { setData(null); setSelectedCell(null); setTab("heatmap"); setZoom(null); setSidebarVisible(false); }}
@@ -1636,7 +1654,7 @@ export default function App() {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: textMd }}>{alleleMode ? "Allele-Specific Heatmap" : "CN Heatmap"}</span>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {zoom && <button onClick={() => setZoom(null)} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "rgba(59,130,246,0.2)", color: "#93c5fd", border: "none", cursor: "pointer" }}>Reset zoom</button>}
+                  {zoom && <button onClick={() => setZoom(null)} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "rgba(10,132,255,0.2)", color: "#0A84FF", border: "none", cursor: "pointer" }}>Reset zoom</button>}
                   <DownloadMenu onDownload={fmt => heatmapPanelRef.current?.download("heatmap", fmt)} style={{ background: bgItem, color: textSm }} />
                 </div>
               </div>
@@ -1647,7 +1665,7 @@ export default function App() {
               </div>
               {selectedCell && (
                 <div style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 12, background: bgCard }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: textSm, marginBottom: 6 }}>Profile — <span style={{ color: "#60a5fa", fontFamily: "monospace" }}>{selectedCell}</span></div>
+                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: textSm, marginBottom: 6 }}>Profile — <span style={{ color: "#0A84FF", fontFamily: "monospace" }}>{selectedCell}</span></div>
                   <ProfilePlot data={data} cellName={selectedCell} height={180} alleleMode={alleleMode} lightMode={lightMode} showCi={showCi} />
                 </div>
               )}
@@ -1660,7 +1678,7 @@ export default function App() {
                 <span style={{ fontSize: 13, fontWeight: 600, color: textMd }}>Cell Profile</span>
                 <DownloadMenu onDownload={fmt => profilePlotRef.current?.download(selectedCell || "cell_profile", fmt)} style={{ background: bgItem, color: textSm }} />
               </div>
-              {selectedCell && <div style={{ fontSize: 12, fontFamily: "monospace", color: "#60a5fa", padding: "4px 10px", borderRadius: 6, background: bgItem, alignSelf: "flex-start" }}>{selectedCell}</div>}
+              {selectedCell && <div style={{ fontSize: 12, fontFamily: "monospace", color: "#0A84FF", padding: "4px 10px", borderRadius: 6, background: bgItem, alignSelf: "flex-start" }}>{selectedCell}</div>}
               <div style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 12, background: bgCard }}>
                 <ProfilePlot ref={profilePlotRef} data={data} cellName={selectedCell} height={300} alleleMode={alleleMode} lightMode={lightMode} showCi={showCi} />
               </div>
@@ -1681,7 +1699,7 @@ export default function App() {
                 <QualityScatter data={data} thresholds={thresholds} selectedCell={selectedCell} onCellClick={setSelectedCell} height={320} lightMode={lightMode} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                {[["Total", totalCells, "text-blue-400", "#60a5fa"], ["Pass", filteredCells.length, "text-emerald-400", "#34d399"], ["Rate", passRate + "%", "text-blue-400", "#60a5fa"]].map(([l, v, , c]) => (
+                {[["Total", totalCells, "text-[#0A84FF]", "#0A84FF"], ["Pass", filteredCells.length, "text-[#34C759]", "#34C759"], ["Rate", passRate + "%", "text-[#0A84FF]", "#0A84FF"]].map(([l, v, , c]) => (
                   <div key={l} style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 10, background: bgCard }}>
                     <div style={{ fontSize: 10, color: textXs, marginBottom: 4 }}>{l}</div>
                     <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "monospace", color: c }}>{v}</div>
@@ -1697,8 +1715,8 @@ export default function App() {
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               style={{ flex: 1, padding: "12px 0 10px", fontSize: 12, fontWeight: 600, border: "none", background: "transparent", cursor: "pointer",
-                color: tab === t.id ? "#3b82f6" : textSm,
-                borderTop: tab === t.id ? "2px solid #3b82f6" : "2px solid transparent" }}>
+                color: tab === t.id ? "#0A84FF" : textSm,
+                borderTop: tab === t.id ? "2px solid #0A84FF" : "2px solid transparent" }}>
               {t.label}
             </button>
           ))}
@@ -1709,22 +1727,25 @@ export default function App() {
 
   /* ── DESKTOP LAYOUT (unchanged) ─────────────────────────────────────────── */
   return (
-    <div className="min-h-screen" style={{ background: bg, color: text, fontFamily: "'Inter',system-ui,sans-serif" }}>
+    <div className="min-h-screen" style={{ background: bg, color: text, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
       {/* Header */}
       <header className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: border, background: bg2 }}>
         <div className="flex items-center gap-3 flex-wrap">
-          <img src={process.env.PUBLIC_URL + "/ASCATsc_logo.svg"} alt="ASCAT.sc logo" className="w-8 h-8 rounded-lg object-contain" />
-          <span className="font-bold tracking-tight text-sm" style={{ fontFamily: "'JetBrains Mono',monospace", color: text }}>ASCAT.sc Explorer</span>
-          <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          <img src={process.env.PUBLIC_URL + "/ASCATsc_logo.svg"} alt="ASCAT.sc logo" className="w-7 h-7 rounded-lg object-contain" />
+          <span className="text-sm" style={{ fontWeight: 600, letterSpacing: "-0.01em", color: text }}>ASCAT.sc Explorer</span>
+          <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: bgItem, color: textSm }}>
             {totalCells} cells &middot; {data.bins.chr.length} bins
           </span>
-          {hasAS && <span className="text-xs px-2 py-0.5 rounded-full border" style={{ background: "rgba(181,134,13,0.15)", color: "#b5860d", borderColor: "rgba(181,134,13,0.3)" }}>Allele-specific</span>}
+          {hasAS && <span className="text-xs px-2 py-0.5 rounded-full flex items-center gap-1.5" style={{ background: bgItem, color: textSm }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: accent2, flexShrink: 0 }} />
+            Allele-specific
+          </span>}
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => setSidebarVisible(v => !v)}
             title={sidebarVisible ? "Hide panel" : "Show panel"}
             className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-colors"
-            style={{ background: lightMode ? "#e2e8f0" : "#333333", color: lightMode ? "#374151" : "#a0a0a0" }}>
+            style={{ background: bgItem, color: textSm }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>
             </svg>
@@ -1740,12 +1761,14 @@ export default function App() {
         {/* Sidebar */}
         {sidebarVisible && <aside className="flex-shrink-0 overflow-y-auto border-r" style={{ width: 280, borderColor: border, background: bgSide }}>
           <div className="p-4 space-y-4">
-            {/* Tabs */}
-            <div className="flex gap-1 p-1 rounded-lg" style={{ background: bgItem }}>
+            {/* Tabs — macOS-style segmented control */}
+            <div className="flex gap-0.5 p-0.5 rounded-lg" style={{ background: bgItem }}>
               {TABS.map(t => (
                 <button key={t.id} onClick={() => setTab(t.id)}
-                  className={`flex-1 text-xs py-2 rounded-md font-medium transition-all ${tab === t.id ? "bg-blue-600 text-white shadow" : ""}`}
-                  style={tab !== t.id ? { color: textSm } : {}}>
+                  className="flex-1 text-xs py-1.5 rounded-md font-medium transition-all"
+                  style={tab === t.id
+                    ? { background: lightMode ? "#ffffff" : "#5a5a5e", color: text, boxShadow: lightMode ? "0 1px 2px rgba(0,0,0,0.1)" : "0 1px 2px rgba(0,0,0,0.3)" }
+                    : { color: textSm }}>
                   {t.label}
                 </button>
               ))}
@@ -1757,7 +1780,7 @@ export default function App() {
                 {hasAS && (
                   <div className="flex items-center justify-between p-2.5 rounded-lg" style={{ background: bgItem }}>
                     <span className="text-xs" style={{ color: textMd }}>Allele-specific</span>
-                    <button onClick={() => setAlleleMode(!alleleMode)} style={{ position:"relative", width:36, height:20, borderRadius:10, border:"none", cursor:"pointer", background: alleleMode ? "#b5860d" : "#4b5563", transition:"background 0.2s" }}>
+                    <button onClick={() => setAlleleMode(!alleleMode)} style={{ position:"relative", width:36, height:20, borderRadius:10, border:"none", cursor:"pointer", background: alleleMode ? "#34C759" : (lightMode ? "#d1d1d6" : "#39393d"), transition:"background 0.2s" }}>
                       <span style={{ position:"absolute", top:2, left: alleleMode ? 18 : 2, width:16, height:16, borderRadius:"50%", background:"#fff", boxShadow:"0 1px 3px rgba(0,0,0,0.4)", transition:"left 0.2s ease-in-out" }} />
                     </button>
                   </div>
@@ -1765,7 +1788,7 @@ export default function App() {
                 {hasDendro && (
                   <div className="flex items-center justify-between p-2.5 rounded-lg" style={{ background: bgItem }}>
                     <span className="text-xs" style={{ color: textMd }}>Dendrogram</span>
-                    <button onClick={() => setShowDendro(!showDendro)} style={{ position:"relative", width:36, height:20, borderRadius:10, border:"none", cursor:"pointer", background: showDendro ? "#b5860d" : "#4b5563", transition:"background 0.2s" }}>
+                    <button onClick={() => setShowDendro(!showDendro)} style={{ position:"relative", width:36, height:20, borderRadius:10, border:"none", cursor:"pointer", background: showDendro ? "#34C759" : (lightMode ? "#d1d1d6" : "#39393d"), transition:"background 0.2s" }}>
                       <span style={{ position:"absolute", top:2, left: showDendro ? 18 : 2, width:16, height:16, borderRadius:"50%", background:"#fff", boxShadow:"0 1px 3px rgba(0,0,0,0.4)", transition:"left 0.2s ease-in-out" }} />
                     </button>
                   </div>
@@ -1773,7 +1796,7 @@ export default function App() {
                 {alleleMode && hasCi && (
                   <div className="flex items-center justify-between p-2.5 rounded-lg" style={{ background: bgItem }}>
                     <span className="text-xs" style={{ color: textMd }}>CI ribbons</span>
-                    <button onClick={() => setShowCi(!showCi)} style={{ position:"relative", width:36, height:20, borderRadius:10, border:"none", cursor:"pointer", background: showCi ? "#b5860d" : "#4b5563", transition:"background 0.2s" }}>
+                    <button onClick={() => setShowCi(!showCi)} style={{ position:"relative", width:36, height:20, borderRadius:10, border:"none", cursor:"pointer", background: showCi ? "#34C759" : (lightMode ? "#d1d1d6" : "#39393d"), transition:"background 0.2s" }}>
                       <span style={{ position:"absolute", top:2, left: showCi ? 18 : 2, width:16, height:16, borderRadius:"50%", background:"#fff", boxShadow:"0 1px 3px rgba(0,0,0,0.4)", transition:"left 0.2s ease-in-out" }} />
                     </button>
                   </div>
@@ -1807,7 +1830,7 @@ export default function App() {
                   value={minSegmentMb}
                   onChange={e => setMinSegmentMb(+e.target.value)}
                   className="w-full h-1 rounded-full appearance-none cursor-pointer"
-                  style={{ accentColor: "#f59e0b", background: border }} />
+                  style={{ accentColor: "#0A84FF", background: border }} />
                 <div className="text-xs mt-1" style={{ color: textXs }}>
                   Segments shorter than this are shown as CN=2 (Mb)
                 </div>
@@ -1826,7 +1849,7 @@ export default function App() {
                   <input type="range" min="0" max={max} step="0.05" value={thresholds[key]}
                     onChange={e => setThresholds(t => ({ ...t, [key]: +e.target.value }))}
                     className="w-full h-1 rounded-full appearance-none cursor-pointer"
-                    style={{ accentColor: "#3b82f6", background: border }} />
+                    style={{ accentColor: "#0A84FF", background: border }} />
                 </div>
               ))}
               {hasCoverage && coverageStats && (
@@ -1841,7 +1864,7 @@ export default function App() {
                     value={thresholds.coverage ?? coverageStats.min}
                     onChange={e => setThresholds(t => ({ ...t, coverage: +e.target.value }))}
                     className="w-full h-1 rounded-full appearance-none cursor-pointer"
-                    style={{ accentColor: "#10b981", background: border }} />
+                    style={{ accentColor: "#0A84FF", background: border }} />
                   <button className="text-xs mt-1" style={{ color: textXs }}
                     onClick={() => setThresholds(t => ({ ...t, coverage: thresholds.coverage != null ? null : coverageStats.min }))}>
                     {thresholds.coverage != null ? "disable" : "enable"}
@@ -1860,7 +1883,7 @@ export default function App() {
                     value={thresholds.bins_with_cna ?? nBins}
                     onChange={e => setThresholds(t => ({ ...t, bins_with_cna: +e.target.value }))}
                     className="w-full h-1 rounded-full appearance-none cursor-pointer"
-                    style={{ accentColor: "#8b5cf6", background: border }} />
+                    style={{ accentColor: "#0A84FF", background: border }} />
                   <button className="text-xs mt-1" style={{ color: textXs }}
                     onClick={() => setThresholds(t => ({ ...t, bins_with_cna: thresholds.bins_with_cna != null ? null : nBins }))}>
                     {thresholds.bins_with_cna != null ? "disable" : "enable"}
@@ -1879,7 +1902,7 @@ export default function App() {
                     <button key={ct} onClick={() => setCellTypeFilter(ct)}
                       className="text-xs px-2 py-1 rounded-md transition-colors"
                       style={{
-                        background: cellTypeFilter === ct ? "#3b82f6" : bgItem,
+                        background: cellTypeFilter === ct ? "#0A84FF" : bgItem,
                         color: cellTypeFilter === ct ? "#ffffff" : textSm,
                       }}>
                       {ct}
@@ -1893,22 +1916,22 @@ export default function App() {
             <div className="relative">
               <svg className="absolute left-2.5 top-2.5" style={{ color: textXs }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
               <input type="text" placeholder="Search barcode..." value={search} onChange={e => setSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-2 rounded-lg text-xs font-mono border-0 outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full pl-8 pr-3 py-2 rounded-lg text-xs font-mono border-0 outline-none focus:ring-1 focus:ring-[#0A84FF]"
                 style={{ background: bgItem, color: text }} />
             </div>
 
             {/* Cell List */}
             <div>
               <div className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: textSm }}>Cell List</div>
-              <div className="rounded-lg overflow-hidden border" style={{ borderColor: border, maxHeight: 200, overflowY: "auto", background: lightMode ? "#f8fafc" : "#222222" }}>
+              <div className="rounded-lg overflow-hidden border" style={{ borderColor: border, maxHeight: 200, overflowY: "auto", background: lightMode ? "#f8fafc" : "#1c1c1e" }}>
                 {filteredCells.length === 0
                   ? <div className="p-3 text-xs text-center" style={{ color: textXs }}>No cells match</div>
                   : filteredCells.map(c => (
                     <button key={c} onClick={() => setSelectedCell(c)}
                       className="w-full text-left px-3 py-1.5 text-xs font-mono truncate transition-colors"
                       style={{
-                        background: c === selectedCell ? "rgba(59,130,246,0.15)" : "transparent",
-                        color: c === selectedCell ? "#60a5fa" : textSm,
+                        background: c === selectedCell ? "rgba(10,132,255,0.15)" : "transparent",
+                        color: c === selectedCell ? "#0A84FF" : textSm,
                       }}>{c}
                       {hasCellTypes && data.cell_types?.[c] && (
                         <span className="ml-1 opacity-50 text-xs">[{data.cell_types[c]}]</span>
@@ -1921,18 +1944,18 @@ export default function App() {
             {/* Nav */}
             <div className="flex gap-2">
               <button onClick={() => navigateCell(-1)} className="flex-1 py-1.5 text-xs rounded-lg transition-colors"
-                style={{ background: lightMode ? "#e2e8f0" : "#b5860d", color: lightMode ? "#374151" : "#1a1a1a", fontWeight: 600 }}>&uarr; Prev</button>
+                style={{ background: bgItem, color: text, fontWeight: 600 }}>&uarr; Prev</button>
               <button onClick={() => { if (selectedCell) setTab("profile"); }}
-                className="flex-1 py-1.5 text-xs rounded-lg bg-blue-600 text-white hover:bg-blue-500">View</button>
+                className="flex-1 py-1.5 text-xs rounded-lg bg-[#0A84FF] text-white hover:bg-[#0A84FF]/85 transition-colors font-medium">View</button>
               <button onClick={() => navigateCell(1)} className="flex-1 py-1.5 text-xs rounded-lg transition-colors"
-                style={{ background: lightMode ? "#e2e8f0" : "#b5860d", color: lightMode ? "#374151" : "#1a1a1a", fontWeight: 600 }}>Next &darr;</button>
+                style={{ background: bgItem, color: text, fontWeight: 600 }}>Next &darr;</button>
             </div>
 
             {/* Selected metrics */}
             {selectedCell && tab !== "profile" && (
               <div>
                 <div className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: textSm }}>Selected</div>
-                <div className="text-xs font-mono text-blue-400 mb-1 truncate">{selectedCell}</div>
+                <div className="text-xs font-mono text-[#0A84FF] mb-1 truncate">{selectedCell}</div>
                 {hasCellTypes && data.cell_types?.[selectedCell] && (
                   <div className="text-xs mb-2" style={{ color: textXs }}>Type: {data.cell_types[selectedCell]}</div>
                 )}
@@ -1957,7 +1980,7 @@ export default function App() {
                 <div className="flex items-center gap-3">
                   <h2 className="text-sm font-semibold" style={{ color: textMd }}>{alleleMode ? "Allele-Specific Heatmap" : "Copy Number Heatmap"}</h2>
                   {isZoomed && (
-                    <button onClick={() => setZoom(null)} className="text-xs px-2.5 py-1 rounded-md bg-blue-600/20 text-blue-300 hover:bg-blue-600/30 flex items-center gap-1">
+                    <button onClick={() => setZoom(null)} className="text-xs px-2.5 py-1 rounded-md bg-[#0A84FF]/15 text-[#0A84FF] hover:bg-[#0A84FF]/25 flex items-center gap-1">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>Reset Zoom
                     </button>
                   )}
@@ -1965,11 +1988,11 @@ export default function App() {
                 <div className="flex items-center gap-3">
                   <span className="text-xs" style={{ color: textXs }}>{filteredCells.length} cells</span>
                   <input type="range" min="250" max="900" step="50" value={heatmapH} onChange={e => setHeatmapH(+e.target.value)}
-                    className="w-20 h-1 rounded-full appearance-none cursor-pointer" style={{ accentColor: "#3b82f6", background: border }} />
+                    className="w-20 h-1 rounded-full appearance-none cursor-pointer" style={{ accentColor: "#0A84FF", background: border }} />
                   <DownloadMenu onDownload={fmt => heatmapPanelRef.current?.download("heatmap", fmt)} style={{ background: bgItem, color: textSm }} />
                 </div>
               </div>
-              <div className="rounded-xl overflow-hidden border" style={{ borderColor: border, background: bg2 }}>
+              <div className="rounded-2xl overflow-hidden border" style={{ borderColor: border, background: bg2 }}>
                 <HeatmapPanel ref={heatmapPanelRef} data={heatmapData} cellOrder={filteredCells} chrInfo={data.chr_info}
                   selectedCell={selectedCell} onCellClick={setSelectedCell} height={heatmapH}
                   alleleMode={alleleMode} zoom={zoom} onZoomChange={setZoom} showDendro={showDendro} lightMode={lightMode} />
@@ -1981,11 +2004,11 @@ export default function App() {
                 </div>
               )}
               {selectedCell && (
-                <div className="rounded-xl border p-4" style={{ borderColor: border, background: bgCard }}>
+                <div className="rounded-2xl border p-4" style={{ borderColor: border, background: bgCard }}>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: textSm }}>Profile</span>
-                    <span className="text-xs font-mono text-blue-400">{selectedCell}</span>
-                    {alleleMode && <span className="text-xs" style={{ color: "#b5860d" }}>(allele-specific)</span>}
+                    <span className="text-xs font-mono text-[#0A84FF]">{selectedCell}</span>
+                    {alleleMode && <span className="text-xs" style={{ color: accent2 }}>(allele-specific)</span>}
                   </div>
                   <ProfilePlot data={data} cellName={selectedCell} height={220} alleleMode={alleleMode} lightMode={lightMode} showCi={showCi} />
                 </div>
@@ -1997,15 +2020,15 @@ export default function App() {
             <div className="space-y-4">
               <div className="flex items-center gap-3">
                 <h2 className="text-sm font-semibold" style={{ color: textMd }}>Cell Profile</h2>
-                {selectedCell && <span className="text-xs font-mono text-blue-400 px-2 py-0.5 rounded-md" style={{ background: bgItem }}>{selectedCell}</span>}
-                {alleleMode && <span className="text-xs" style={{ color: "#b5860d" }}>(allele-specific)</span>}
+                {selectedCell && <span className="text-xs font-mono text-[#0A84FF] px-2 py-0.5 rounded-md" style={{ background: bgItem }}>{selectedCell}</span>}
+                {alleleMode && <span className="text-xs" style={{ color: accent2 }}>(allele-specific)</span>}
                 <DownloadMenu onDownload={fmt => profilePlotRef.current?.download(selectedCell || "cell_profile", fmt)} style={{ background: bgItem, color: textSm }} />
               </div>
-              <div className="rounded-xl border p-4" style={{ borderColor: border, background: bgCard }}>
+              <div className="rounded-2xl border p-4" style={{ borderColor: border, background: bgCard }}>
                 <ProfilePlot ref={profilePlotRef} data={data} cellName={selectedCell} height={360} alleleMode={alleleMode} lightMode={lightMode} showCi={showCi} />
               </div>
               {selectedCell && (
-                <div className="rounded-xl border p-4" style={{ borderColor: border, background: lightMode ? bgCard : "#252525" }}>
+                <div className="rounded-2xl border p-4" style={{ borderColor: border, background: bgCard }}>
                   <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: textSm }}>Quality Metrics</div>
                   <CellMetrics data={data} cellName={selectedCell} thresholds={thresholds} lightMode={lightMode} effectiveQuality={effectiveQuality} />
                 </div>
@@ -2016,13 +2039,13 @@ export default function App() {
           {tab === "quality" && (
             <div className="space-y-4">
               <h2 className="text-sm font-semibold" style={{ color: textMd }}>Quality Overview</h2>
-              <div className="rounded-xl border p-4" style={{ borderColor: border, background: bgCard }}>
+              <div className="rounded-2xl border p-4" style={{ borderColor: border, background: bgCard }}>
                 <div className="text-xs mb-2" style={{ color: textSm }}>MAPD vs Median Residual</div>
                 <QualityScatter data={data} thresholds={thresholds} selectedCell={selectedCell} onCellClick={setSelectedCell} height={400} lightMode={lightMode} />
               </div>
               <div className="grid grid-cols-3 gap-3">
-                {[["Total cells", totalCells, "text-blue-400"], ["Pass filter", filteredCells.length, "text-emerald-400"], ["Pass rate", passRate + "%", "text-blue-400"]].map(([l, v, c]) => (
-                  <div key={l} className="rounded-xl border p-4" style={{ borderColor: border, background: bgCard }}>
+                {[["Total cells", totalCells, "text-[#0A84FF]"], ["Pass filter", filteredCells.length, "text-[#34C759]"], ["Pass rate", passRate + "%", "text-[#0A84FF]"]].map(([l, v, c]) => (
+                  <div key={l} className="rounded-2xl border p-4" style={{ borderColor: border, background: bgCard }}>
                     <div className="text-xs mb-1" style={{ color: textXs }}>{l}</div>
                     <div className={`text-2xl font-bold font-mono ${c}`}>{v}</div>
                   </div>
