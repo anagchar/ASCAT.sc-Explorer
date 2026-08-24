@@ -1307,7 +1307,7 @@ const ThemeToggle = memo(function ThemeToggle({ lightMode, onToggle }) {
   );
 });
 
-function DownloadMenu({ onDownload, style }) {
+function DownloadMenu({ onDownload, style, lightMode = false }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef();
   useEffect(() => {
@@ -1316,6 +1316,16 @@ function DownloadMenu({ onDownload, style }) {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
+  // Floating menu — glass material, matching the rest of the chrome layer
+  const glassMenu = {
+    background: lightMode ? "rgba(255,255,255,0.75)" : "rgba(44,44,46,0.7)",
+    backdropFilter: "blur(24px) saturate(180%)",
+    WebkitBackdropFilter: "blur(24px) saturate(180%)",
+    border: lightMode ? "1px solid rgba(0,0,0,0.06)" : "1px solid rgba(255,255,255,0.1)",
+    boxShadow: lightMode
+      ? "inset 0 1px 0 rgba(255,255,255,0.8), 0 8px 24px rgba(0,0,0,0.12)"
+      : "inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 24px rgba(0,0,0,0.45)",
+  };
   return (
     <div ref={menuRef} className="relative">
       <button onClick={() => setOpen(o => !o)}
@@ -1326,7 +1336,7 @@ function DownloadMenu({ onDownload, style }) {
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
       </button>
       {open && (
-        <div className="absolute right-0 mt-1.5 rounded-2xl shadow-lg z-50 overflow-hidden" style={{ background: style.background, border: "1px solid rgba(127,127,127,0.18)", minWidth: "90px" }}>
+        <div className="absolute right-0 mt-1.5 rounded-2xl shadow-lg z-50 overflow-hidden" style={{ ...glassMenu, minWidth: "90px" }}>
           {["PNG", "PDF"].map(fmt => (
             <button key={fmt} onClick={() => { onDownload(fmt.toLowerCase()); setOpen(false); }}
               className="w-full text-left text-xs px-3 py-2 hover:bg-[#0A84FF]/15 transition-colors"
@@ -1521,7 +1531,6 @@ export default function App() {
   const bg     = lightMode ? "#f5f5f7" : "#1c1c1e";
   const bg2    = lightMode ? "#ffffff" : "#242426";
   const bgCard = lightMode ? "#ffffff" : "#242426";
-  const bgSide = lightMode ? "#f5f5f7" : "#1c1c1e";
   const bgItem = lightMode ? "#e8e8ed" : "#3a3a3c";
   const border = lightMode ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.08)";
   const text   = lightMode ? "#1d1d1f" : "#f5f5f7";
@@ -1530,13 +1539,26 @@ export default function App() {
   const textXs = lightMode ? "rgba(60,60,67,0.4)"  : "rgba(235,235,245,0.35)";
   const accent2 = "#FF9500";  // systemOrange — selection / allele-specific emphasis
 
+  // Liquid-glass material — reserved for the navigation/chrome layer (toolbar,
+  // sidebar, floating menus, sheets). Content surfaces (heatmap, plots, cards)
+  // stay flat and opaque so data stays legible.
+  const glass = {
+    background: lightMode ? "rgba(255,255,255,0.68)" : "rgba(28,28,30,0.62)",
+    backdropFilter: "blur(24px) saturate(180%)",
+    WebkitBackdropFilter: "blur(24px) saturate(180%)",
+    boxShadow: lightMode
+      ? "inset 0 1px 0 rgba(255,255,255,0.8), inset 0 0 0 1px rgba(255,255,255,0.4), 0 4px 24px rgba(0,0,0,0.06)"
+      : "inset 0 1px 0 rgba(255,255,255,0.08), inset 0 0 0 1px rgba(255,255,255,0.06), 0 4px 24px rgba(0,0,0,0.4)",
+  };
+  const glassBorder = lightMode ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)";
+
   /* ── MOBILE LAYOUT ─────────────────────────────────────────────────────── */
   if (isMobile) {
     return (
       <div style={{ minHeight: "100dvh", background: bg, color: text, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif", display: "flex", flexDirection: "column" }}>
 
-        {/* Mobile header */}
-        <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: `1px solid ${border}`, background: bg2, flexShrink: 0 }}>
+        {/* Mobile header — glass toolbar, sticky over scrolling content */}
+        <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: `1px solid ${glassBorder}`, ...glass, position: "sticky", top: 0, zIndex: 30 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <img src={process.env.PUBLIC_URL + "/ASCATsc_logo.svg"} alt="ASCAT.sc logo" style={{ width: 26, height: 26, borderRadius: 6 }} />
             <span style={{ fontWeight: 600, fontSize: 14, letterSpacing: "-0.01em", color: text }}>ASCAT.sc</span>
@@ -1560,7 +1582,7 @@ export default function App() {
         {sidebarVisible && (
           <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", flexDirection: "column" }}>
             <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)" }} onClick={() => setSidebarVisible(false)} />
-            <div style={{ position: "relative", marginTop: "auto", background: bgSide, borderRadius: "18px 18px 0 0", maxHeight: "80dvh", overflowY: "auto", padding: 16, zIndex: 1 }}>
+            <div style={{ position: "relative", marginTop: "auto", ...glass, borderTop: `1px solid ${glassBorder}`, borderRadius: "18px 18px 0 0", maxHeight: "80dvh", overflowY: "auto", padding: 16, zIndex: 1 }}>
               <div style={{ width: 36, height: 4, borderRadius: 2, background: border, margin: "0 auto 16px" }} />
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: text }}>Settings</span>
@@ -1655,7 +1677,7 @@ export default function App() {
                 <span style={{ fontSize: 13, fontWeight: 600, color: textMd }}>{alleleMode ? "Allele-Specific Heatmap" : "CN Heatmap"}</span>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   {zoom && <button onClick={() => setZoom(null)} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "rgba(10,132,255,0.2)", color: "#0A84FF", border: "none", cursor: "pointer" }}>Reset zoom</button>}
-                  <DownloadMenu onDownload={fmt => heatmapPanelRef.current?.download("heatmap", fmt)} style={{ background: bgItem, color: textSm }} />
+                  <DownloadMenu onDownload={fmt => heatmapPanelRef.current?.download("heatmap", fmt)} lightMode={lightMode} style={{ background: bgItem, color: textSm }} />
                 </div>
               </div>
               <div style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${border}`, background: bg2 }}>
@@ -1676,7 +1698,7 @@ export default function App() {
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: textMd }}>Cell Profile</span>
-                <DownloadMenu onDownload={fmt => profilePlotRef.current?.download(selectedCell || "cell_profile", fmt)} style={{ background: bgItem, color: textSm }} />
+                <DownloadMenu onDownload={fmt => profilePlotRef.current?.download(selectedCell || "cell_profile", fmt)} lightMode={lightMode} style={{ background: bgItem, color: textSm }} />
               </div>
               {selectedCell && <div style={{ fontSize: 12, fontFamily: "monospace", color: "#0A84FF", padding: "4px 10px", borderRadius: 6, background: bgItem, alignSelf: "flex-start" }}>{selectedCell}</div>}
               <div style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 12, background: bgCard }}>
@@ -1710,8 +1732,8 @@ export default function App() {
           )}
         </div>
 
-        {/* Bottom tab bar */}
-        <nav style={{ display: "flex", borderTop: `1px solid ${border}`, background: bg2, flexShrink: 0 }}>
+        {/* Bottom tab bar — glass, sticky over scrolling content */}
+        <nav style={{ display: "flex", borderTop: `1px solid ${glassBorder}`, ...glass, flexShrink: 0, position: "sticky", bottom: 0, zIndex: 30 }}>
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               style={{ flex: 1, padding: "12px 0 10px", fontSize: 12, fontWeight: 600, border: "none", background: "transparent", cursor: "pointer",
@@ -1728,8 +1750,8 @@ export default function App() {
   /* ── DESKTOP LAYOUT (unchanged) ─────────────────────────────────────────── */
   return (
     <div className="min-h-screen" style={{ background: bg, color: text, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
-      {/* Header */}
-      <header className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: border, background: bg2 }}>
+      {/* Header — glass toolbar, sticky over scrolling content */}
+      <header className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: glassBorder, ...glass, position: "sticky", top: 0, zIndex: 30 }}>
         <div className="flex items-center gap-3 flex-wrap">
           <img src={process.env.PUBLIC_URL + "/ASCATsc_logo.svg"} alt="ASCAT.sc logo" className="w-7 h-7 rounded-lg object-contain" />
           <span className="text-sm" style={{ fontWeight: 600, letterSpacing: "-0.01em", color: text }}>ASCAT.sc Explorer</span>
@@ -1757,9 +1779,10 @@ export default function App() {
         </div>
       </header>
 
-      <div className="flex" style={{ height: "calc(100vh - 49px)" }}>
-        {/* Sidebar */}
-        {sidebarVisible && <aside className="flex-shrink-0 overflow-y-auto border-r" style={{ width: 280, borderColor: border, background: bgSide }}>
+      <div className="flex">
+        {/* Sidebar — glass, sticky under the header while content scrolls beside it */}
+        {sidebarVisible && <aside className="flex-shrink-0 overflow-y-auto border-r"
+          style={{ width: 280, borderColor: glassBorder, ...glass, position: "sticky", top: 49, alignSelf: "flex-start", maxHeight: "calc(100vh - 49px)", zIndex: 20 }}>
           <div className="p-4 space-y-4">
             {/* Tabs — macOS-style segmented control */}
             <div className="flex gap-0.5 p-0.5 rounded-lg" style={{ background: bgItem }}>
@@ -1973,7 +1996,7 @@ export default function App() {
         </aside>}
 
         {/* Main */}
-        <main className="flex-1 overflow-y-auto p-5" style={{ background: bg }}>
+        <main className="flex-1 min-w-0 p-5" style={{ background: bg }}>
           {tab === "heatmap" && (
             <div className="space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1989,7 +2012,7 @@ export default function App() {
                   <span className="text-xs" style={{ color: textXs }}>{filteredCells.length} cells</span>
                   <input type="range" min="250" max="900" step="50" value={heatmapH} onChange={e => setHeatmapH(+e.target.value)}
                     className="w-20 h-1 rounded-full appearance-none cursor-pointer" style={{ accentColor: "#0A84FF", background: border }} />
-                  <DownloadMenu onDownload={fmt => heatmapPanelRef.current?.download("heatmap", fmt)} style={{ background: bgItem, color: textSm }} />
+                  <DownloadMenu onDownload={fmt => heatmapPanelRef.current?.download("heatmap", fmt)} lightMode={lightMode} style={{ background: bgItem, color: textSm }} />
                 </div>
               </div>
               <div className="rounded-2xl overflow-hidden border" style={{ borderColor: border, background: bg2 }}>
@@ -2022,7 +2045,7 @@ export default function App() {
                 <h2 className="text-sm font-semibold" style={{ color: textMd }}>Cell Profile</h2>
                 {selectedCell && <span className="text-xs font-mono text-[#0A84FF] px-2 py-0.5 rounded-md" style={{ background: bgItem }}>{selectedCell}</span>}
                 {alleleMode && <span className="text-xs" style={{ color: accent2 }}>(allele-specific)</span>}
-                <DownloadMenu onDownload={fmt => profilePlotRef.current?.download(selectedCell || "cell_profile", fmt)} style={{ background: bgItem, color: textSm }} />
+                <DownloadMenu onDownload={fmt => profilePlotRef.current?.download(selectedCell || "cell_profile", fmt)} lightMode={lightMode} style={{ background: bgItem, color: textSm }} />
               </div>
               <div className="rounded-2xl border p-4" style={{ borderColor: border, background: bgCard }}>
                 <ProfilePlot ref={profilePlotRef} data={data} cellName={selectedCell} height={360} alleleMode={alleleMode} lightMode={lightMode} showCi={showCi} />
