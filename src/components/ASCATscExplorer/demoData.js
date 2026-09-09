@@ -92,6 +92,20 @@ function buildDemoDendrogram(cells, profiles, nMajor = null, nMinor = null) {
   return { merge, height, order };
 }
 
+// Standard discrete Gini coefficient over per-bin read counts — mirrors the
+// computeGini() in ASCATsc_Explorer_1.jsx (duplicated here rather than
+// imported, matching how buildDemoDendrogram already mirrors its sibling).
+function computeGini(values) {
+  const v = values.filter(x => x != null && Number.isFinite(x) && x >= 0).sort((a, b) => a - b);
+  const n = v.length;
+  if (n === 0) return null;
+  const sum = v.reduce((a, b) => a + b, 0);
+  if (sum === 0) return 0;
+  let weighted = 0;
+  for (let i = 0; i < n; i++) weighted += (i + 1) * v[i];
+  return (2 * weighted) / (n * sum) - (n + 1) / n;
+}
+
 export function generateDemoData(nCells = 200, nBinsPerChr = 80) {
   const chrSizes=[249,243,198,191,181,171,159,145,138,134,135,133,114,107,102,90,83,80,59,64,47,51];
   const chrNames=chrSizes.map((_,i)=>`chr${i+1}`);
@@ -100,7 +114,13 @@ export function generateDemoData(nCells = 200, nBinsPerChr = 80) {
   chrSizes.forEach((size,ci)=>{const bs=(size*1e6)/nBinsPerChr;const cs=cum;for(let b=0;b<nBinsPerChr;b++){chrs.push(chrNames[ci]);const s=Math.round(b*bs),e=Math.round((b+1)*bs);starts.push(s);ends.push(e);startCum.push(cum+s);endCum.push(cum+e);}cum+=size*1e6;chrInfo.push({chr:chrNames[ci],start_cum:cs,end_cum:cum,mid_cum:(cs+cum)/2});});
   const nBins=chrs.length;
   const cells=Array.from({length:nCells},(_,i)=>`CELL_${String(i+1).padStart(4,"0")}`);
-  const profiles={},raw={},quality={},nMajor={},nMinor={},cell_types={};
+  const profiles={},raw={},reads={},quality={},nMajor={},nMinor={},cell_types={};
+
+  // Shared mappability/GC bias across all cells — a smoothed random walk that
+  // creates realistic baseline coverage unevenness (same bin is "hard to sequence"
+  // in every cell), mirroring what drives the Gini coefficient in real scWGS data.
+  const mapBias = new Float64Array(nBins);
+  { let v = 1; for (let i = 0; i < nBins; i++) { v += (Math.random() - 0.5) * 0.15; v = Math.max(0.35, Math.min(2.4, v)); mapBias[i] = v; } }
   const pats=[
     ()=>({t:Array(nBins).fill(2),maj:Array(nBins).fill(1),min:Array(nBins).fill(1)}),
     ()=>{const t=Array(nBins).fill(2),m=Array(nBins).fill(1),n=Array(nBins).fill(1);for(let i=nBinsPerChr*3;i<nBinsPerChr*5;i++){t[i]=3;m[i]=2;}return{t,maj:m,min:n};},
@@ -128,10 +148,23 @@ export function generateDemoData(nCells = 200, nBinsPerChr = 80) {
       mapd=d3.median(diffs)||0;
     }
     const bins_with_cna = p.t.filter(v => Math.round(v) !== 2).length;
-    quality[c]={median_residual:mr,mapd,bins_with_cna};
+
+    // Per-bin raw read counts — expected depth follows CN state and the shared
+    // mappability bias, with Poisson-like counting noise on top. meanDepth and
+    // noiseScale vary per cell so cells span a realistic range of Gini values.
+    const meanDepth = 30 + Math.random() * 90;
+    const noiseScale = 0.15 + Math.random() * 0.55;
+    reads[c] = p.t.map((cn, i) => {
+      const expected = meanDepth * (cn / 2) * mapBias[i];
+      const noisy = expected * (1 + (Math.random() - 0.5) * 2 * noiseScale);
+      return Math.max(0, Math.round(noisy));
+    });
+    const gini = computeGini(reads[c]);
+
+    quality[c]={median_residual:mr,mapd,bins_with_cna,gini};
   });
   const order=[...cells].sort((a,b)=>{let da=0,db=0;for(let i=0;i<nBins;i+=10){da+=profiles[a][i];db+=profiles[b][i];}return da-db;});
   const dendro = buildDemoDendrogram(cells, profiles);
   const dendro_as = buildDemoDendrogram(cells, profiles, nMajor, nMinor);
-  return { metadata:{n_cells:nCells,n_bins:nBins,is_allele_specific:true}, bins:{chr:chrs,start:starts,end:ends,start_cum:startCum,end_cum:endCum}, chr_info:chrInfo, profiles, raw, quality, clustering_order:order, nMajor, nMinor, dendrogram: dendro, dendrogram_as: dendro_as, cell_types };
+  return { metadata:{n_cells:nCells,n_bins:nBins,is_allele_specific:true}, bins:{chr:chrs,start:starts,end:ends,start_cum:startCum,end_cum:endCum}, chr_info:chrInfo, profiles, raw, reads, quality, clustering_order:order, nMajor, nMinor, dendrogram: dendro, dendrogram_as: dendro_as, cell_types };
 }

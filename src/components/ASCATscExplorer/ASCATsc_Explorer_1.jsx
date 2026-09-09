@@ -302,6 +302,17 @@ function normalizeLoadedData(rawData) {
     }
   }
 
+  // Compute the Gini coefficient (coverage evenness) from per-bin read counts
+  // for any cell that doesn't already carry a precomputed value.
+  if (data.reads && data.quality) {
+    for (const cell of profileCells) {
+      if (data.quality[cell] && data.quality[cell].gini == null && data.reads[cell]) {
+        const gini = computeGini(data.reads[cell]);
+        if (gini != null) data.quality[cell] = { ...data.quality[cell], gini };
+      }
+    }
+  }
+
   return data;
 }
 
@@ -515,6 +526,24 @@ function filterSmallSegments(profile, minBins) {
     i = j;
   }
   return result;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GINI COEFFICIENT
+   Standard discrete Gini coefficient over per-bin read counts — measures how
+   unevenly reads are spread across the genome (0 = perfectly uniform coverage,
+   →1 = all reads concentrated in a few bins). Also powers the Lorenz curve.
+   ═══════════════════════════════════════════════════════════════════════════ */
+function computeGini(values) {
+  if (!values) return null;
+  const v = values.filter(x => x != null && Number.isFinite(x) && x >= 0).sort((a, b) => a - b);
+  const n = v.length;
+  if (n === 0) return null;
+  const sum = v.reduce((a, b) => a + b, 0);
+  if (sum === 0) return 0;
+  let weighted = 0;
+  for (let i = 0; i < n; i++) weighted += (i + 1) * v[i];
+  return (2 * weighted) / (n * sum) - (n + 1) / n;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1129,6 +1158,263 @@ const ProfilePlot = memo(forwardRef(function ProfilePlot({ data, cellName, showR
 }));
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   READ DEPTH PLOT (canvas) — per-bin raw read counts.
+   Profile-panel-only companion to ProfilePlot: shares the same ML/MR margins
+   and the same x-axis genome scale so it lines up bin-for-bin with the CN
+   profile plotted directly above it. Never used inside the heatmap panel.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const ReadDepthPlot = memo(forwardRef(function ReadDepthPlot({ data, cellName, height = 160, lightMode = false }, ref) {
+  const containerRef = useRef(); const canvasRef = useRef(); const [width, setWidth] = useState(800);
+  useImperativeHandle(ref, () => ({
+    download(basename = "read_depth", format = "png") {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const out = document.createElement("canvas");
+      out.width = canvas.width; out.height = canvas.height;
+      const ctx = out.getContext("2d");
+      ctx.fillStyle = lightMode ? "#ffffff" : "#1c1c1e";
+      ctx.fillRect(0, 0, out.width, out.height);
+      ctx.drawImage(canvas, 0, 0);
+      if (format === "pdf") {
+        const cssW = canvas.offsetWidth, cssH = canvas.offsetHeight;
+        const dataUrl = out.toDataURL("image/png");
+        const pdf = new jsPDF({ orientation: cssW > cssH ? "landscape" : "portrait", unit: "px", format: [cssW, cssH], hotfixes: ["px_scaling"] });
+        pdf.addImage(dataUrl, "PNG", 0, 0, cssW, cssH);
+        pdf.save(basename + ".pdf");
+      } else {
+        const link = document.createElement("a");
+        link.download = basename + ".png";
+        link.href = out.toDataURL("image/png");
+        link.click();
+      }
+    }
+  }), [lightMode]);
+
+  // Same left/right margins as ProfilePlot (ML=48, MR=20) so the two charts'
+  // plot areas — and therefore the genome x-axis — line up pixel-for-pixel.
+  const ML = 48, MT = 16, MR = 20, MB = 36;
+  useEffect(() => {
+    const ro = new ResizeObserver(e => { const w = e[0]?.contentRect.width; if (w > 0) setWidth(Math.round(w)); });
+    if (containerRef.current) ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  const reads = cellName ? data.reads?.[cellName] : null;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !cellName || !reads) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr; canvas.height = height * dpr;
+    canvas.style.width = width + "px"; canvas.style.height = height + "px";
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const plotW = width - ML - MR, plotH = height - MT - MB;
+    const nBins = data.bins.chr.length, genomeMax = data.bins.end_cum[nBins - 1];
+    const xS = v => ML + (v / genomeMax) * plotW;
+    const validReads = reads.filter(v => v != null);
+    const maxReads = Math.max(1, d3.max(validReads) || 1);
+    const yS = v => MT + plotH - (Math.min(v, maxReads) / maxReads) * plotH;
+
+    const textCol = lightMode ? "#374151" : "#94a3b8";
+    const axisCol = lightMode ? "#9ca3af" : "#374151";
+    const plotBg  = lightMode ? "#eef0f3" : "#161618";
+    const bandTint= lightMode ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.045)";
+    const chrDiv  = lightMode ? "rgba(0,0,0,0.1)" : "rgba(255,255,255,0.1)";
+    const barCol  = "#64D2FF"; // systemTeal — distinct from CN segment colors above
+
+    ctx.fillStyle = lightMode ? "#ffffff" : "transparent";
+    ctx.clearRect(0, 0, width, height);
+    if (lightMode) ctx.fillRect(0, 0, width, height);
+
+    ctx.fillStyle = plotBg;
+    ctx.fillRect(ML, MT, plotW, plotH);
+
+    data.chr_info.forEach(({ start_cum, end_cum }, i) => {
+      if (i % 2 === 1) {
+        ctx.fillStyle = bandTint;
+        ctx.fillRect(xS(start_cum), MT, xS(end_cum) - xS(start_cum), plotH);
+      }
+    });
+    ctx.strokeStyle = chrDiv; ctx.lineWidth = 1;
+    data.chr_info.forEach(({ start_cum }, i) => {
+      if (i === 0) return;
+      const px = Math.round(xS(start_cum)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(px, MT); ctx.lineTo(px, MT + plotH); ctx.stroke();
+    });
+    ctx.strokeRect(Math.round(ML) + 0.5, Math.round(MT) + 0.5, Math.round(plotW) - 1, Math.round(plotH) - 1);
+
+    // Per-bin read-count bars
+    ctx.fillStyle = barCol; ctx.globalAlpha = 0.8;
+    for (let i = 0; i < nBins; i++) {
+      const v = reads[i];
+      if (v == null) continue;
+      const x0 = xS(data.bins.start_cum[i]);
+      const x1 = xS(data.bins.end_cum[i]);
+      const y0 = yS(v);
+      ctx.fillRect(x0, y0, Math.max(0.6, x1 - x0), MT + plotH - y0);
+    }
+    ctx.globalAlpha = 1;
+
+    // Mean read depth reference line
+    if (validReads.length) {
+      const meanReads = d3.mean(validReads);
+      ctx.strokeStyle = lightMode ? "#9ca3af" : "#4b5563"; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+      const py = yS(meanReads);
+      ctx.beginPath(); ctx.moveTo(ML, py); ctx.lineTo(ML + plotW, py); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Y axis
+    ctx.strokeStyle = axisCol; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(ML, MT); ctx.lineTo(ML, MT + plotH); ctx.stroke();
+    ctx.fillStyle = textCol; ctx.font = "10px system-ui"; ctx.textAlign = "right";
+    d3.ticks(0, maxReads, 4).forEach(t => {
+      const py = yS(t);
+      ctx.beginPath(); ctx.moveTo(ML - 4, py); ctx.lineTo(ML, py); ctx.stroke();
+      ctx.fillText(Math.round(t), ML - 6, py + 3);
+    });
+    ctx.save(); ctx.translate(12, MT + plotH / 2); ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = "center"; ctx.font = "11px system-ui";
+    ctx.fillText("Reads / bin", 0, 0);
+    ctx.restore();
+
+    // Chr labels — matches ProfilePlot so the two tracks read as one figure
+    ctx.fillStyle = textCol; ctx.font = "10px system-ui"; ctx.textAlign = "center";
+    data.chr_info.forEach(({ chr, mid_cum }) => {
+      ctx.fillText(chr.replace("chr", ""), xS(mid_cum), MT + plotH + 22);
+    });
+  }, [data, cellName, reads, width, height, lightMode]);
+
+  if (!cellName) return null;
+  if (!reads) {
+    return (
+      <div className="flex items-center justify-center text-xs text-center px-4" style={{ height: 100, color: lightMode ? "#9ca3af" : "#6b7280" }}>
+        No per-bin read count data in this dataset — re-export from R with the updated ascatsc_to_web.R to include it.
+      </div>
+    );
+  }
+  return (
+    <div ref={containerRef} className="w-full">
+      <canvas ref={canvasRef} style={{ display: "block" }} />
+    </div>
+  );
+}));
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LORENZ CURVE (canvas) — cumulative share of reads vs. cumulative share of
+   bins for the selected cell, sorted from lowest- to highest-covered bin.
+   The gap between this curve and the diagonal line of equality is exactly
+   what the Gini coefficient (annotated on-chart) quantifies.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const LorenzCurvePlot = memo(function LorenzCurvePlot({ data, cellName, gini, height = 240, lightMode = false }) {
+  const containerRef = useRef(); const canvasRef = useRef(); const [width, setWidth] = useState(320);
+  const ML = 42, MT = 16, MR = 16, MB = 34;
+  useEffect(() => {
+    const ro = new ResizeObserver(e => { const w = e[0]?.contentRect.width; if (w > 0) setWidth(Math.round(w)); });
+    if (containerRef.current) ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  const reads = cellName ? data.reads?.[cellName] : null;
+
+  const points = useMemo(() => {
+    if (!reads) return null;
+    const v = reads.filter(x => x != null && x >= 0).sort((a, b) => a - b);
+    const n = v.length;
+    if (n === 0) return null;
+    const total = d3.sum(v);
+    if (total === 0) return null;
+    const pts = [[0, 0]];
+    let cum = 0;
+    for (let i = 0; i < n; i++) { cum += v[i]; pts.push([(i + 1) / n, cum / total]); }
+    return pts;
+  }, [reads]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr; canvas.height = height * dpr;
+    canvas.style.width = width + "px"; canvas.style.height = height + "px";
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    if (lightMode) { ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, width, height); }
+
+    const plotW = width - ML - MR, plotH = height - MT - MB;
+    const xS = v => ML + v * plotW;
+    const yS = v => MT + plotH - v * plotH;
+
+    const textCol = lightMode ? "#374151" : "#94a3b8";
+    const axisCol = lightMode ? "#9ca3af" : "#374151";
+    const plotBg  = lightMode ? "#eef0f3" : "#161618";
+
+    ctx.fillStyle = plotBg; ctx.fillRect(ML, MT, plotW, plotH);
+    ctx.strokeRect(Math.round(ML) + 0.5, Math.round(MT) + 0.5, Math.round(plotW) - 1, Math.round(plotH) - 1);
+
+    // Line of equality
+    ctx.strokeStyle = lightMode ? "#9ca3af" : "#4b5563"; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(xS(0), yS(0)); ctx.lineTo(xS(1), yS(1)); ctx.stroke();
+    ctx.setLineDash([]);
+
+    if (points) {
+      // Shaded gap between equality line and the Lorenz curve — the area the
+      // Gini coefficient measures (as a fraction of the triangle under the diagonal)
+      ctx.fillStyle = "rgba(10,132,255,0.14)";
+      ctx.beginPath();
+      ctx.moveTo(xS(points[0][0]), yS(points[0][0]));
+      for (const [x, y] of points) ctx.lineTo(xS(x), yS(y));
+      for (let i = points.length - 1; i >= 0; i--) ctx.lineTo(xS(points[i][0]), yS(points[i][0]));
+      ctx.closePath(); ctx.fill();
+
+      ctx.strokeStyle = "#0A84FF"; ctx.lineWidth = 2; ctx.lineCap = "round";
+      ctx.beginPath();
+      points.forEach(([x, y], i) => { const px = xS(x), py = yS(y); i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); });
+      ctx.stroke();
+    }
+
+    // Axes
+    ctx.strokeStyle = axisCol; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(ML, MT); ctx.lineTo(ML, MT + plotH); ctx.lineTo(ML + plotW, MT + plotH); ctx.stroke();
+    ctx.fillStyle = textCol; ctx.font = "10px system-ui";
+    [0, 0.25, 0.5, 0.75, 1].forEach(t => {
+      const px = xS(t), py = yS(t);
+      ctx.textAlign = "center"; ctx.beginPath(); ctx.moveTo(px, MT + plotH); ctx.lineTo(px, MT + plotH + 4); ctx.stroke();
+      ctx.fillText(`${Math.round(t * 100)}%`, px, MT + plotH + 14);
+      ctx.textAlign = "right"; ctx.beginPath(); ctx.moveTo(ML - 4, py); ctx.lineTo(ML, py); ctx.stroke();
+      ctx.fillText(`${Math.round(t * 100)}%`, ML - 6, py + 3);
+    });
+
+    ctx.fillStyle = textCol; ctx.font = "11px system-ui"; ctx.textAlign = "center";
+    ctx.fillText("Cumulative % of bins", ML + plotW / 2, MT + plotH + 28);
+    ctx.save(); ctx.translate(12, MT + plotH / 2); ctx.rotate(-Math.PI / 2);
+    ctx.fillText("Cumulative % of reads", 0, 0);
+    ctx.restore();
+
+    if (gini != null) {
+      ctx.fillStyle = "#0A84FF"; ctx.font = "bold 11px system-ui"; ctx.textAlign = "left";
+      ctx.fillText(`Gini = ${gini.toFixed(3)}`, ML + 6, MT + 14);
+    }
+  }, [points, width, height, lightMode, gini]);
+
+  if (!cellName) return null;
+  if (!points) {
+    return (
+      <div className="flex items-center justify-center text-xs text-center px-4" style={{ height: 100, color: lightMode ? "#9ca3af" : "#6b7280" }}>
+        No per-bin read count data in this dataset — re-export from R with the updated ascatsc_to_web.R to include it.
+      </div>
+    );
+  }
+  return (
+    <div ref={containerRef} className="w-full">
+      <canvas ref={canvasRef} style={{ display: "block" }} />
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
    QUALITY SCATTER (D3/SVG)
    ═══════════════════════════════════════════════════════════════════════════ */
 const QualityScatter = memo(function QualityScatter({ data, thresholds, selectedCell, onCellClick, height = 320, lightMode = false }) {
@@ -1259,6 +1545,7 @@ const CellMetrics = memo(function CellMetrics({ data, cellName, thresholds, ligh
   const pM = q.mapd <= thresholds.mapd;
   const pC = thresholds.coverage == null || q.coverage == null || q.coverage >= thresholds.coverage;
   const pB = thresholds.bins_with_cna == null || q.bins_with_cna == null || q.bins_with_cna <= thresholds.bins_with_cna;
+  const pG = thresholds.gini == null || q.gini == null || q.gini <= thresholds.gini;
   const boxBg = lightMode ? "#f5f5f7" : "#1c1c1e";
   const labelCol = lightMode ? "rgba(60,60,67,0.6)" : "rgba(235,235,245,0.55)";
   const valueCol = lightMode ? "#1d1d1f" : "#f5f5f7";
@@ -1285,6 +1572,9 @@ const CellMetrics = memo(function CellMetrics({ data, cellName, thresholds, ligh
         <MetricBox label="Bins w/ CNA" val={q.bins_with_cna} pass={pB}
           thresh={thresholds.bins_with_cna}
           fmt={v => v != null ? `${v}${nBins ? ` / ${nBins}` : ""}` : "—"} />
+      )}
+      {q.gini != null && (
+        <MetricBox label="Gini Coefficient" val={q.gini} pass={pG} thresh={thresholds.gini} />
       )}
     </div>
   );
@@ -1375,7 +1665,7 @@ export default function App() {
   const heatmapPanelRef = useRef();
   const profilePlotRef = useRef();
   const [search, setSearch] = useState("");
-  const [thresholds, setThresholds] = useState({ residual: 1.5, mapd: 2.0, coverage: null, bins_with_cna: null });
+  const [thresholds, setThresholds] = useState({ residual: 1.5, mapd: 2.0, coverage: null, bins_with_cna: null, gini: null });
   const [minSegmentMb, setMinSegmentMb] = useState(0);
   const [heatmapH, setHeatmapH] = useState(650);
   const [alleleMode, setAlleleMode] = useState(false);
@@ -1395,6 +1685,7 @@ export default function App() {
   const hasCellTypes = !!(data?.cell_types && Object.keys(data.cell_types).length > 0);
   const hasCoverage = !!(data && Object.values(data.quality).some(q => q?.coverage != null));
   const hasBinsWithCna = !!(data && Object.values(data.quality).some(q => q?.bins_with_cna != null));
+  const hasGini = !!(data && Object.values(data.quality).some(q => q?.gini != null));
 
   // All unique cell type labels in clustering order
   const cellTypeOptions = useMemo(() => {
@@ -1473,14 +1764,21 @@ export default function App() {
       const cnaVals = vals.map(v => v.bins_with_cna).filter(v => v != null).sort((a, b) => a - b);
       if (cnaVals.length) cnaThresh = Math.ceil(d3.quantile(cnaVals, 0.90));
     }
+    // Default Gini threshold: top 10th percentile (flag the most unevenly-covered cells)
+    let giniThresh = null;
+    if (hasGini) {
+      const giniVals = vals.map(v => v.gini).filter(v => v != null).sort((a, b) => a - b);
+      if (giniVals.length) giniThresh = Math.round(d3.quantile(giniVals, 0.90) * 1000) / 1000;
+    }
     setThresholds({
       residual: Math.round((medR + 2 * madR) * 100) / 100,
       mapd: Math.round((medM + 2 * madM) * 100) / 100,
       coverage: covThresh,
       bins_with_cna: cnaThresh,
+      gini: giniThresh,
     });
     setAlleleMode(false); setZoom(null); setShowDendro(true); setCellTypeFilter("All"); setMinSegmentMb(0);
-  }, [data, hasCoverage, hasBinsWithCna]);
+  }, [data, hasCoverage, hasBinsWithCna, hasGini]);
 
   const filteredCells = useMemo(() => {
     if (!data) return [];
@@ -1495,6 +1793,7 @@ export default function App() {
       if (q.mapd != null && q.mapd > thresholds.mapd) return false;
       if (thresholds.coverage != null && q.coverage != null && q.coverage < thresholds.coverage) return false;
       if (thresholds.bins_with_cna != null && q.bins_with_cna != null && q.bins_with_cna > thresholds.bins_with_cna) return false;
+      if (thresholds.gini != null && q.gini != null && q.gini > thresholds.gini) return false;
       if (cellTypeFilter !== "All" && data.cell_types?.[c] !== cellTypeFilter) return false;
       if (search && !c.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
@@ -1706,8 +2005,20 @@ export default function App() {
               </div>
               {selectedCell && (
                 <div style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 12, background: bgCard }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: textSm, marginBottom: 10 }}>Read Depth per Bin</div>
+                  <ReadDepthPlot data={data} cellName={selectedCell} height={150} lightMode={lightMode} />
+                </div>
+              )}
+              {selectedCell && (
+                <div style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 12, background: bgCard }}>
                   <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: textSm, marginBottom: 10 }}>Quality Metrics</div>
                   <CellMetrics data={data} cellName={selectedCell} thresholds={thresholds} lightMode={lightMode} effectiveQuality={effectiveQuality} />
+                </div>
+              )}
+              {selectedCell && (
+                <div style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 12, background: bgCard }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: textSm, marginBottom: 10 }}>Lorenz Curve</div>
+                  <LorenzCurvePlot data={data} cellName={selectedCell} gini={effectiveQuality[selectedCell]?.gini ?? data.quality[selectedCell]?.gini} height={220} lightMode={lightMode} />
                 </div>
               )}
             </div>
@@ -1913,6 +2224,25 @@ export default function App() {
                   </button>
                 </div>
               )}
+              {hasGini && (
+                <div className="mb-2">
+                  <div className="flex justify-between text-xs mb-1">
+                    <span style={{ color: textSm }}>Max Gini</span>
+                    <span className="font-mono" style={{ color: textMd }}>
+                      {thresholds.gini != null ? thresholds.gini.toFixed(3) : "off"}
+                    </span>
+                  </div>
+                  <input type="range" min="0" max="1" step="0.01"
+                    value={thresholds.gini ?? 1}
+                    onChange={e => setThresholds(t => ({ ...t, gini: +e.target.value }))}
+                    className="w-full h-1 rounded-full appearance-none cursor-pointer"
+                    style={{ accentColor: "#0A84FF", background: border }} />
+                  <button className="text-xs mt-1" style={{ color: textXs }}
+                    onClick={() => setThresholds(t => ({ ...t, gini: thresholds.gini != null ? null : 1 }))}>
+                    {thresholds.gini != null ? "disable" : "enable"}
+                  </button>
+                </div>
+              )}
               <div className="text-xs" style={{ color: textXs }}>{filteredCells.length} / {totalCells} cells ({passRate}%)</div>
             </div>
 
@@ -2052,8 +2382,20 @@ export default function App() {
               </div>
               {selectedCell && (
                 <div className="rounded-2xl border p-4" style={{ borderColor: border, background: bgCard }}>
-                  <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: textSm }}>Quality Metrics</div>
-                  <CellMetrics data={data} cellName={selectedCell} thresholds={thresholds} lightMode={lightMode} effectiveQuality={effectiveQuality} />
+                  <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: textSm }}>Read Depth per Bin</div>
+                  <ReadDepthPlot data={data} cellName={selectedCell} height={170} lightMode={lightMode} />
+                </div>
+              )}
+              {selectedCell && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="rounded-2xl border p-4" style={{ borderColor: border, background: bgCard }}>
+                    <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: textSm }}>Quality Metrics</div>
+                    <CellMetrics data={data} cellName={selectedCell} thresholds={thresholds} lightMode={lightMode} effectiveQuality={effectiveQuality} />
+                  </div>
+                  <div className="rounded-2xl border p-4" style={{ borderColor: border, background: bgCard }}>
+                    <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: textSm }}>Lorenz Curve</div>
+                    <LorenzCurvePlot data={data} cellName={selectedCell} gini={effectiveQuality[selectedCell]?.gini ?? data.quality[selectedCell]?.gini} height={240} lightMode={lightMode} />
+                  </div>
                 </div>
               )}
             </div>

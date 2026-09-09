@@ -143,6 +143,53 @@ extract_total_profiles <- function(res) {
 }
 
 # =============================================================================
+# HELPER: Gini coefficient (coverage evenness) over a vector of read counts
+# =============================================================================
+
+gini_coefficient <- function(x) {
+  x <- x[!is.na(x) & x >= 0]
+  n <- length(x)
+  if (n == 0) return(NA_real_)
+  x <- sort(x)
+  s <- sum(x)
+  if (s == 0) return(0)
+  cum <- sum(seq_len(n) * x)
+  (2 * cum) / (n * s) - (n + 1) / n
+}
+
+# =============================================================================
+# HELPER: extract raw per-bin read counts (powers the read-depth plot & Gini
+# coefficient in the web explorer). Best-effort: tries the track lists / column
+# names known to appear in ASCAT.sc result objects and degrades gracefully —
+# if your pipeline stores raw counts elsewhere, point `read_count_cols` at it.
+# =============================================================================
+
+extract_read_counts <- function(res, cell_names, read_count_cols = c("reads", "counts", "count", "n_reads", "readCount")) {
+  message("Extracting raw per-bin read counts...")
+  track_lists <- list(res$allTracks, res$allTracks.processed)
+
+  reads_list <- lapply(cell_names, function(cell) {
+    for (tracks in track_lists) {
+      if (is.null(tracks) || is.null(tracks[[cell]]) || is.null(tracks[[cell]]$lCTS)) next
+      dt <- tryCatch(rbindlist(tracks[[cell]]$lCTS), error = function(e) NULL)
+      if (is.null(dt)) next
+      hit <- intersect(read_count_cols, names(dt))
+      if (length(hit) > 0) return(as.numeric(dt[[hit[1]]]))
+    }
+    NULL
+  })
+  names(reads_list) <- cell_names
+
+  if (all(sapply(reads_list, is.null))) {
+    message(sprintf(
+      "  Warning: no read-count column found (tried: %s) — read-depth plot & Gini coefficient will be unavailable. Pass read_count_cols= to point at the right column.",
+      paste(read_count_cols, collapse = ", ")))
+    return(NULL)
+  }
+  reads_list
+}
+
+# =============================================================================
 # HELPER: detect allele-specific mode
 # =============================================================================
 
@@ -271,10 +318,19 @@ prepare_explorer_data <- function(res, cell_types = NULL) {
     compute_mapd_logR(logR_vals, bins$chr)
   })
 
+  # Per-bin read counts (best-effort — see extract_read_counts()) power both
+  # the read-depth plot and the Gini coefficient (coverage evenness) below.
+  reads <- extract_read_counts(res, cell_names)
+  cell_gini <- sapply(cell_names, function(cell_id) {
+    r <- if (!is.null(reads)) reads[[cell_id]] else NULL
+    if (is.null(r)) NA_real_ else gini_coefficient(r)
+  })
+
   quality_dt <- data.table(
     cell            = cell_names,
     median_residual = as.numeric(cell_quality),
-    mapd            = as.numeric(cell_mapd)
+    mapd            = as.numeric(cell_mapd),
+    gini            = as.numeric(cell_gini)
   )
 
   message(sprintf("  Thresholds — residual: %.3f  mapd: %.3f",
@@ -291,7 +347,8 @@ prepare_explorer_data <- function(res, cell_types = NULL) {
     ordered_cells      = ordered_cells,
     quality_dt         = quality_dt,
     hc                 = hc,
-    cell_type_df       = cell_type_df
+    cell_type_df       = cell_type_df,
+    reads              = reads
   )
 }
 
@@ -345,6 +402,15 @@ export_for_web <- function(app_data,
     raw_out <- lapply(as.list(profiles$raw), function(v) round(as.numeric(v), 4))
   }
 
+  # 5b. reads — per-bin raw read counts, powers the web app's read-depth plot
+  # and Lorenz curve (Gini coefficient is computed from this same data)
+  reads_out <- NULL
+  if (!is.null(app_data$reads)) {
+    message("  Serializing per-bin read counts...")
+    reads_out <- Filter(Negate(is.null), lapply(app_data$reads, function(v) if (is.null(v)) NULL else as.integer(round(v))))
+    if (length(reads_out) == 0) reads_out <- NULL
+  }
+
   # 6. quality
   message("  Serializing quality metrics...")
   qdt <- app_data$quality_dt
@@ -365,6 +431,8 @@ export_for_web <- function(app_data,
     )
     if (!is.null(coverage_vals) && !is.na(coverage_vals[cell]))
       q$coverage <- round(coverage_vals[cell], 2)
+    if (length(idx) > 0 && !is.na(qdt$gini[idx[1]]))
+      q$gini <- round(qdt$gini[idx[1]], 6)
     q
   }), cell_names)
 
@@ -438,6 +506,7 @@ export_for_web <- function(app_data,
                   profiles = total_profiles, quality = quality_out,
                   clustering_order = clustering_order)
   if (!is.null(raw_out))        payload$raw        <- raw_out
+  if (!is.null(reads_out))      payload$reads      <- reads_out
   if (!is.null(nMajor_out))     payload$nMajor     <- nMajor_out
   if (!is.null(nMinor_out))     payload$nMinor     <- nMinor_out
   if (!is.null(ci_out))         payload$ci         <- ci_out
