@@ -164,28 +164,51 @@ gini_coefficient <- function(x) {
 # if your pipeline stores raw counts elsewhere, point `read_count_cols` at it.
 # =============================================================================
 
-extract_read_counts <- function(res, cell_names, read_count_cols = c("reads", "counts", "count", "n_reads", "readCount")) {
+extract_read_counts <- function(res, cell_names, n_bins,
+                                read_count_cols = c("records", "reads", "counts", "count", "n_reads", "readCount")) {
   message("Extracting raw per-bin read counts...")
-  track_lists <- list(res$allTracks, res$allTracks.processed)
+  # allTracks.processed first — it's the same source already trusted for the
+  # raw-CN dots and MAPD, so a `records`-like column there is known-good. Only
+  # fall back to the (unprocessed) allTracks if .processed has no such column.
+  track_lists <- list(processed = res$allTracks.processed, raw = res$allTracks)
+  used_source <- NULL
+  used_col    <- NULL
+  n_length_mismatch <- 0
 
   reads_list <- lapply(cell_names, function(cell) {
-    for (tracks in track_lists) {
+    for (src_name in names(track_lists)) {
+      tracks <- track_lists[[src_name]]
       if (is.null(tracks) || is.null(tracks[[cell]]) || is.null(tracks[[cell]]$lCTS)) next
       dt <- tryCatch(rbindlist(tracks[[cell]]$lCTS), error = function(e) NULL)
       if (is.null(dt)) next
       hit <- intersect(read_count_cols, names(dt))
-      if (length(hit) > 0) return(as.numeric(dt[[hit[1]]]))
+      if (length(hit) == 0) next
+      if (is.null(used_source)) { used_source <<- src_name; used_col <<- hit[1] }
+      vals <- as.numeric(dt[[hit[1]]])
+      # ASCAT.sc collapses low-quality windows per cell, so a cell's lCTS can
+      # have fewer rows than the nominal bin count — zipping that shorter
+      # vector against the full-length `bins` by index would silently
+      # misalign every bin downstream of the first collapse. Drop rather
+      # than corrupt, mirroring how cell_mapd() already guards this.
+      if (length(vals) != n_bins) { n_length_mismatch <<- n_length_mismatch + 1; return(NULL) }
+      return(vals)
     }
     NULL
   })
   names(reads_list) <- cell_names
 
-  if (all(sapply(reads_list, is.null))) {
+  if (is.null(used_source)) {
     message(sprintf(
       "  Warning: no read-count column found (tried: %s) — read-depth plot & Gini coefficient will be unavailable. Pass read_count_cols= to point at the right column.",
       paste(read_count_cols, collapse = ", ")))
     return(NULL)
   }
+  message(sprintf("  Found read counts in res$%s[[cell]]$lCTS$%s",
+                  if (used_source == "processed") "allTracks.processed" else "allTracks", used_col))
+  n_ok <- sum(!sapply(reads_list, is.null))
+  message(sprintf("  %d / %d cells have usable read counts (%d dropped: bin-count mismatch vs. nominal %d bins)",
+                  n_ok, length(cell_names), n_length_mismatch, n_bins))
+  if (n_ok == 0) return(NULL)
   reads_list
 }
 
@@ -258,7 +281,8 @@ extract_allele_profiles <- function(res, bins) {
 # Processes res object into everything the exporter needs.
 # =============================================================================
 
-prepare_explorer_data <- function(res, cell_types = NULL) {
+prepare_explorer_data <- function(res, cell_types = NULL,
+                                  read_count_cols = c("records", "reads", "counts", "count", "n_reads", "readCount")) {
   message("=== Preparing ASCAT.sc data ===")
 
   bins     <- extract_bins(res)
@@ -320,7 +344,7 @@ prepare_explorer_data <- function(res, cell_types = NULL) {
 
   # Per-bin read counts (best-effort — see extract_read_counts()) power both
   # the read-depth plot and the Gini coefficient (coverage evenness) below.
-  reads <- extract_read_counts(res, cell_names)
+  reads <- extract_read_counts(res, cell_names, n_bins = nrow(bins), read_count_cols = read_count_cols)
   cell_gini <- sapply(cell_names, function(cell_id) {
     r <- if (!is.null(reads)) reads[[cell_id]] else NULL
     if (is.null(r)) NA_real_ else gini_coefficient(r)
@@ -536,7 +560,8 @@ rds_to_web <- function(rds_path,
                        output_path      = "ascat_data.json",
                        cell_type_file   = NULL,
                        barcode_map_file = NULL,
-                       pretty           = FALSE) {
+                       pretty           = FALSE,
+                       read_count_cols  = c("records", "reads", "counts", "count", "n_reads", "readCount")) {
 
   message(sprintf("Loading %s ...", rds_path))
   res <- readRDS(rds_path)
@@ -547,6 +572,6 @@ rds_to_web <- function(rds_path,
     cell_types <- map_cell_types_to_dna(cell_type_file, barcode_map_file)
   }
 
-  app_data <- prepare_explorer_data(res, cell_types = cell_types)
+  app_data <- prepare_explorer_data(res, cell_types = cell_types, read_count_cols = read_count_cols)
   export_for_web(app_data, output_path = output_path, pretty = pretty)
 }
