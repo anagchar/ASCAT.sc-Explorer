@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useMemo, useCallback, useDeferredValue, memo, forwardRef, useImperativeHandle } from "react";
-import jsPDF from "jspdf";
-import * as d3 from "d3";
-import { cnColor, cnRGBDark, MAJOR_COLOR, MINOR_COLOR, CN_LEGEND_ENTRIES, AS_COLORS } from "../../constants/colors";
+import { AS_COLORS } from "../../constants/colors";
 import { generateDemoData } from "./demoData";
+import { axes, chrLabel, css, esc, fit, fmt, fmtBp, fmtCount, fmtInt, FONT, hexRGB, niceTicks, quantile, saveCanvas, tip } from "./chart";
+import { computeQCMetrics, fmtMetric, isOutlier, METRIC_META, metricSummaries, num } from "./qc";
+import QCTab, { useWidth as useWidthOf } from "./QCTab";
 
 /* Precomputed RGB lookup for allele-specific states (mirrors R's get_allele_specific_colors) */
 function hexToRGBArr(h) {
@@ -10,15 +11,6 @@ function hexToRGBArr(h) {
 }
 const AS_RGB = {};
 for (const [state, hex] of Object.entries(AS_COLORS)) AS_RGB[state] = hexToRGBArr(hex);
-const AS_RGB_NA = AS_RGB["NA"] || [190, 190, 190];
-
-function asRGB(major, minor) {
-  if (major == null || minor == null) return AS_RGB_NA;
-  const maj = Math.max(major, minor), min = Math.min(major, minor);
-  const total = maj + min;
-  const key = total > 7 ? "7+" : `${maj}|${min}`;
-  return AS_RGB[key] || AS_RGB_NA;
-}
 
 /* Circlize-style G-banding stain colours */
 const STAIN_COLORS = {
@@ -341,172 +333,6 @@ function useCytobands() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   UPLOAD SCREEN
-   ═══════════════════════════════════════════════════════════════════════════ */
-function UploadScreen({onLoad}){
-  const[dragging,setDragging]=useState(false);const[error,setError]=useState(null);const[loading,setLoading]=useState(false);const fileRef=useRef();
-  const handleFile=(file)=>{if(!file)return;if(file.name.endsWith(".rds")||file.name.endsWith(".RDS")){setError("This is an .rds file — convert to JSON first.\n\nIn R:\n  source(\"R/ascatsc_to_web.R\")\n  rds_to_web(\""+file.name+"\", \"ascat_data.json\")\n\nThen upload the resulting ascat_data.json here.\nSee the README at https://github.com/anagchar/ASCAT.sc-Explorer for details.");return;}setLoading(true);setError(null);const reader=new FileReader();reader.onload=e=>{try{const d=JSON.parse(e.target.result);if(!d.bins||!d.profiles)throw new Error("Invalid JSON: missing 'bins' or 'profiles'.");if(!d.chr_info)throw new Error("Missing 'chr_info'.");onLoad(normalizeLoadedData(d));}catch(err){setError(err.message);setLoading(false);}};reader.onerror=()=>{setError("Failed to read file");setLoading(false);};reader.readAsText(file);};
-  return(
-    <div className="min-h-screen flex items-center justify-center" style={{background:"#1c1c1e",fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif"}}>
-      <div className="w-full max-w-lg mx-4">
-        <div className="text-center mb-10">
-          <div className="flex items-center justify-center mb-4">
-            <img src={process.env.PUBLIC_URL + "/ASCATsc_logo.svg"} alt="ASCAT.sc logo" className="h-14" />
-          </div>
-          <p style={{color:"rgba(235,235,245,0.45)",fontSize:14,letterSpacing:"-0.01em"}}>Single-cell copy number visualization</p>
-        </div>
-        <div className={`border rounded-3xl p-12 text-center transition-all cursor-pointer ${dragging?"border-[#0A84FF] bg-[#0A84FF]/10":"border-white/[0.1] hover:border-white/20 bg-white/[0.02]"}`}
-          onDragOver={e=>{e.preventDefault();setDragging(true);}} onDragLeave={()=>setDragging(false)}
-          onDrop={e=>{e.preventDefault();setDragging(false);handleFile(e.dataTransfer.files[0]);}} onClick={()=>fileRef.current?.click()}>
-          <input ref={fileRef} type="file" accept=".json,.gz,.rds" className="hidden" onChange={e=>handleFile(e.target.files[0])}/>
-          {loading?(<div className="text-[#0A84FF]"><div className="inline-block w-7 h-7 border-2 border-[#0A84FF] border-t-transparent rounded-full animate-spin mb-3"/><p className="text-sm">Loading…</p></div>):(
-            <><svg className="mx-auto mb-4" style={{color:"rgba(235,235,245,0.35)"}} width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5-5 5 5M12 5v12"/></svg>
-              <p style={{color:"rgba(235,235,245,0.85)",fontSize:15}} className="mb-1">Drop <code className="text-[#0A84FF] bg-[#0A84FF]/10 px-2 py-0.5 rounded-md text-sm">ascat_data.json</code> here</p></>)}
-        </div>
-        {error&&<div className="mt-4 p-4 bg-[#FF3B30]/10 border border-[#FF3B30]/25 rounded-2xl text-[#FF3B30] text-sm whitespace-pre-wrap font-mono leading-relaxed">{error}</div>}
-        <div className="mt-6 text-center">
-          <button onClick={()=>onLoad(generateDemoData())} className="text-sm transition-colors" style={{color:"rgba(235,235,245,0.45)"}} onMouseEnter={e=>e.currentTarget.style.color="#0A84FF"} onMouseLeave={e=>e.currentTarget.style.color="rgba(235,235,245,0.45)"}>Load demo dataset (200 cells, allele-specific)</button>
-        </div>
-        <div className="mt-8 rounded-2xl p-4 text-left" style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)"}}>
-          <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{color:"rgba(235,235,245,0.4)"}}>How to export from R</div>
-          <pre className="text-xs font-mono leading-relaxed overflow-x-auto" style={{color:"rgba(235,235,245,0.5)"}}>{`source("R/ascatsc_to_web.R")
-rds_to_web("your_results.rds", "ascat_data.json")`}</pre>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   DENDROGRAM CANVAS
-   ═══════════════════════════════════════════════════════════════════════════ */
-const DendrogramCanvas = memo(forwardRef(function DendrogramCanvas({ data, cellOrder, height, yRange, width = 100, lightMode, alleleMode = false }, ref) {
-  const canvasRef = useRef();
-  useImperativeHandle(ref, () => canvasRef.current, []);
-  // In allele-specific mode, prefer the AS dendrogram so that LOH-driven
-  // clustering differences are reflected in the dendrogram arms.
-  const dendro = (alleleMode && data.dendrogram_as) ? data.dendrogram_as : data.dendrogram;
-  const hasValidDendro = Array.isArray(dendro?.merge) && Array.isArray(dendro?.height) && dendro.merge.length > 0 && dendro.height.length === dendro.merge.length;
-  const nCells = cellOrder.length;
-  const MARGIN_TOP = 26;
-  const MARGIN_BOT = 20;
-  const plotH = height - MARGIN_TOP - MARGIN_BOT;
-  const PAD = 8;
-
-  // Build cellMapping and extract subtree when zoomed.
-  // R merge uses -(profileCells index + 1) for leaves.
-  const { segments, maxH } = useMemo(() => {
-    if (!hasValidDendro || nCells < 2) return { segments: [], maxH: 0 };
-    const profileCells = Object.keys(data.profiles || {});
-    const posByCell = new Map(cellOrder.map((cell, i) => [cell, i]));
-    const cellMapping = {};
-    profileCells.forEach((cell, i) => {
-      const pos = posByCell.get(cell);
-      cellMapping[i] = Number.isFinite(pos) ? pos : null;
-    });
-
-    const yr = yRange || [0, nCells];
-    const isZoomed = yr[0] > 0 || yr[1] < nCells;
-
-    if (!isZoomed) return layoutDendrogram(dendro.merge, dendro.height, nCells, cellMapping);
-
-    // Find which profileCell indices are visible in the zoomed row window.
-    const visibleLeafSet = new Set();
-    profileCells.forEach((cell, i) => {
-      const pos = cellMapping[i];
-      if (pos != null && pos >= yr[0] - 0.5 && pos < yr[1] - 0.5) visibleLeafSet.add(i);
-    });
-    if (visibleLeafSet.size < 2) return layoutDendrogram(dendro.merge, dendro.height, nCells, cellMapping);
-
-    // For each merge node, count how many visible leaves it contains.
-    // A node "spans" visible leaves if its count > 0.
-    const nodeVisCount = new Int32Array(dendro.merge.length);
-    for (let i = 0; i < dendro.merge.length; i++) {
-      const [l, r] = dendro.merge[i];
-      const lc = l < 0 ? (visibleLeafSet.has(-l - 1) ? 1 : 0) : nodeVisCount[l - 1];
-      const rc = r < 0 ? (visibleLeafSet.has(-r - 1) ? 1 : 0) : nodeVisCount[r - 1];
-      nodeVisCount[i] = lc + rc;
-    }
-
-    // Find the subtree root: the lowest merge node whose visible count equals
-    // visibleLeafSet.size (i.e. the MRCA of all visible leaves).
-    let subtreeRoot = dendro.merge.length - 1;
-    for (let i = 0; i < dendro.merge.length; i++) {
-      if (nodeVisCount[i] === visibleLeafSet.size) { subtreeRoot = i; break; }
-    }
-
-    // Collect only the merge rows that belong to the subtree rooted at subtreeRoot.
-    // Walk the subtree and gather 1-based step indices.
-    const subtreeSteps = new Set();
-    const stack = [subtreeRoot + 1]; // 1-based step code
-    while (stack.length) {
-      const code = stack.pop();
-      if (code < 0) continue; // leaf
-      const idx = code - 1;
-      subtreeSteps.add(idx);
-      const [l, r] = dendro.merge[idx];
-      if (l > 0) stack.push(l);
-      if (r > 0) stack.push(r);
-    }
-
-    // Build a filtered merge/height containing only subtree steps,
-    // remapping step codes to new 1-based indices.
-    // Steps must be emitted in topological order (children before parents).
-    const oldToNew = new Int32Array(dendro.merge.length).fill(-1);
-    const newMerge = [];
-    const newHeight = [];
-    // Iterate original order (children always come before parents in hclust).
-    for (let i = 0; i < dendro.merge.length; i++) {
-      if (!subtreeSteps.has(i)) continue;
-      const newIdx = newMerge.length;
-      oldToNew[i] = newIdx;
-      const [l, r] = dendro.merge[i];
-      const newL = l < 0 ? l : (oldToNew[l - 1] >= 0 ? oldToNew[l - 1] + 1 : l);
-      const newR = r < 0 ? r : (oldToNew[r - 1] >= 0 ? oldToNew[r - 1] + 1 : r);
-      newMerge.push([newL, newR]);
-      newHeight.push(dendro.height[i]);
-    }
-
-    return layoutDendrogram(newMerge, newHeight, visibleLeafSet.size, cellMapping);
-  }, [dendro, hasValidDendro, nCells, cellOrder, data.profiles, yRange]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !hasValidDendro || nCells < 2 || maxH === 0) return;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr; canvas.height = height * dpr;
-    canvas.style.width = width + "px"; canvas.style.height = height + "px";
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, width, height);
-    if (lightMode) { ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, width, height); }
-
-    const yr = yRange || [0, nCells];
-    const ySpan = yr[1] - yr[0] || 1;
-    const xScale = h => PAD + ((maxH - h) / maxH) * (width - PAD * 2);
-    const yScale = ci => MARGIN_TOP + ((ci - yr[0]) / ySpan) * plotH;
-
-    ctx.strokeStyle = lightMode ? "#3a3a3c" : "#64748b";
-    ctx.lineWidth = 0.8;
-    ctx.beginPath();
-    for (const s of segments) {
-      const minY = Math.min(s.y1, s.y2);
-      const maxY = Math.max(s.y1, s.y2);
-      if (maxY < yr[0] || minY > yr[1]) continue;
-      // Horizontal segments draw as-is; vertical segments clamp to viewport
-      const drawY1 = s.y1 === s.y2 ? s.y1 : Math.max(yr[0], Math.min(yr[1], s.y1));
-      const drawY2 = s.y1 === s.y2 ? s.y2 : Math.max(yr[0], Math.min(yr[1], s.y2));
-      ctx.moveTo(xScale(s.x1), yScale(drawY1));
-      ctx.lineTo(xScale(s.x2), yScale(drawY2));
-    }
-    ctx.stroke();
-  }, [segments, maxH, hasValidDendro, nCells, width, height, yRange, plotH, lightMode]);
-
-  if (!hasValidDendro || nCells < 2) return null;
-  return <canvas ref={canvasRef} style={{ width, height, display: "block", flexShrink: 0 }} />;
-}));
-
-/* ═══════════════════════════════════════════════════════════════════════════
    SEGMENT SIZE FILTER UTILITY
    Returns a new profile where any run of consecutive non-diploid (CN≠2) bins
    shorter than minBins is replaced with CN=2.
@@ -546,11 +372,209 @@ function computeGini(values) {
   return (2 * weighted) / (n * sum) - (n + 1) / n;
 }
 
+const PUBLIC = process.env.PUBLIC_URL || "";
+const LOGO_LIGHT = PUBLIC + "/logo_light.svg", LOGO_DARK = PUBLIC + "/logo_dark.svg";
+
+/* Total copy-number colours come from the theme's --cn0..--cn6 tokens */
+function cnPalette() {
+  const rgb = [0, 1, 2, 3, 4, 5, 6].map((k) => hexRGB(css("--cn" + k))), na = hexRGB(css("--cnna"));
+  return (v) => (v == null || isNaN(v) ? na : rgb[v <= 0 ? 0 : v >= 6 ? 6 : Math.round(v)]);
+}
+const asKey = (a, b) => {
+  if (a == null || b == null) return null;
+  const M = Math.max(a, b), m = Math.min(a, b);
+  return M + m > 7 ? "7+" : AS_COLORS[`${M}|${m}`] ? `${M}|${m}` : "7+";
+};
+const swatch = (c) => `<span class="swatch" style="background:${c}"></span>`;
+
+/** Bin index whose cumulative span holds gx (binary search). */
+function binAt(bins, gx) {
+  let lo = 0, hi = bins.end_cum.length - 1;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (bins.end_cum[mid] < gx) lo = mid + 1; else hi = mid; }
+  return lo;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UPLOAD SCREEN
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function readText(file) {
+  if (/\.gz$/i.test(file.name) && typeof DecompressionStream !== "undefined")
+    return new Response(file.stream().pipeThrough(new DecompressionStream("gzip"))).text();
+  return file.text();
+}
+
+function UploadScreen({ onLoad, onToggleTheme }) {
+  const [dragging, setDragging] = useState(false), [error, setError] = useState(null), [loading, setLoading] = useState(false);
+  const fileRef = useRef();
+  const handleFile = async (file) => {
+    if (!file) return;
+    if (/\.rds$/i.test(file.name)) {
+      setError(`This is an .rds file — convert it to JSON first.\n\nIn R:\n  source("R/ascatsc_to_web.R")\n  rds_to_web("${file.name}", "ascat_data.json")\n\nThen open the resulting ascat_data.json here.`);
+      return;
+    }
+    setLoading(true); setError(null);
+    try {
+      const d = JSON.parse(await readText(file));
+      if (!d.bins || !d.profiles) throw new Error("Invalid JSON: missing 'bins' or 'profiles'.");
+      if (!d.chr_info) throw new Error("Missing 'chr_info'.");
+      onLoad(normalizeLoadedData(d), file.name.replace(/\.json(\.gz)?$/i, ""));
+    } catch (err) { setError(err.message); setLoading(false); }
+  };
+  return (
+    <div className="upload">
+      <button className="iconbtn" style={{ position: "fixed", top: 16, right: 16 }} onClick={onToggleTheme} title="Light or dark (t)" aria-label="Switch between light and dark"><ThemeIcon /></button>
+      <div className="inner">
+        <div className="hero">
+          <div className="logos"><img className="logo-light" src={LOGO_LIGHT} alt="ASCAT.sc" /><img className="logo-dark" src={LOGO_DARK} alt="ASCAT.sc" /></div>
+          <h1>ASCAT.sc Explorer</h1>
+          <p>Single-cell copy number, interactively</p>
+        </div>
+        <button className={"card drop" + (dragging ? " over" : "")}
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)}
+          onDrop={(e) => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }} onClick={() => fileRef.current?.click()}>
+          <input ref={fileRef} type="file" accept=".json,.gz,.rds" hidden onChange={(e) => handleFile(e.target.files[0])} />
+          {loading ? <><div className="spinner" /><div className="small">Opening…</div></> : <>
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5-5 5 5M12 5v12" /></svg>
+            <div className="big">Drop <code>ascat_data.json</code> here</div>
+            <div className="small">or click to choose a file · .json or .json.gz</div>
+          </>}
+        </button>
+        {error && <div className="err">{error}</div>}
+        <div className="actions"><button className="iconbtn" onClick={() => onLoad(generateDemoData(), "Demo dataset")}>Load the demo dataset · 200 cells, allele-specific</button></div>
+        <div className="card">
+          <div className="hd"><h2>Export from R</h2><span className="sub">from an ASCAT.sc result</span></div>
+          <div className="bd"><pre className="mono">{`source("R/ascatsc_to_web.R")\nrds_to_web("your_results.rds", "ascat_data.json")`}</pre></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DENDROGRAM CANVAS
+   ═══════════════════════════════════════════════════════════════════════════ */
+// Rows of the heatmap start below the chromosome labels and the ideogram
+const HM_TOP = 40, HM_BOT = 4, LABEL_Y = 13, IDEO_Y = 22, IDEO_H = 12;
+
+const DendrogramCanvas = memo(forwardRef(function DendrogramCanvas({ data, cellOrder, height, yRange, width = 92, theme, alleleMode = false }, ref) {
+  const canvasRef = useRef();
+  useImperativeHandle(ref, () => canvasRef.current, []);
+  // In allele-specific mode, prefer the AS dendrogram so that LOH-driven
+  // clustering differences are reflected in the dendrogram arms.
+  const dendro = (alleleMode && data.dendrogram_as) ? data.dendrogram_as : data.dendrogram;
+  const hasValidDendro = Array.isArray(dendro?.merge) && Array.isArray(dendro?.height) && dendro.merge.length > 0 && dendro.height.length === dendro.merge.length;
+  const nCells = cellOrder.length;
+  const plotH = height - HM_TOP - HM_BOT;
+  const PAD = 6;
+
+  // Build cellMapping and extract subtree when zoomed.
+  // R merge uses -(profileCells index + 1) for leaves.
+  const { segments, maxH } = useMemo(() => {
+    if (!hasValidDendro || nCells < 2) return { segments: [], maxH: 0 };
+    const profileCells = Object.keys(data.profiles || {});
+    const posByCell = new Map(cellOrder.map((cell, i) => [cell, i]));
+    const cellMapping = {};
+    profileCells.forEach((cell, i) => {
+      const pos = posByCell.get(cell);
+      cellMapping[i] = Number.isFinite(pos) ? pos : null;
+    });
+
+    const yr = yRange || [0, nCells];
+    const isZoomed = yr[0] > 0 || yr[1] < nCells;
+
+    if (!isZoomed) return layoutDendrogram(dendro.merge, dendro.height, nCells, cellMapping);
+
+    // Find which profileCell indices are visible in the zoomed row window.
+    const visibleLeafSet = new Set();
+    profileCells.forEach((cell, i) => {
+      const pos = cellMapping[i];
+      if (pos != null && pos >= yr[0] - 0.5 && pos < yr[1] - 0.5) visibleLeafSet.add(i);
+    });
+    if (visibleLeafSet.size < 2) return layoutDendrogram(dendro.merge, dendro.height, nCells, cellMapping);
+
+    // For each merge node, count how many visible leaves it contains.
+    const nodeVisCount = new Int32Array(dendro.merge.length);
+    for (let i = 0; i < dendro.merge.length; i++) {
+      const [l, r] = dendro.merge[i];
+      const lc = l < 0 ? (visibleLeafSet.has(-l - 1) ? 1 : 0) : nodeVisCount[l - 1];
+      const rc = r < 0 ? (visibleLeafSet.has(-r - 1) ? 1 : 0) : nodeVisCount[r - 1];
+      nodeVisCount[i] = lc + rc;
+    }
+
+    // The subtree root: the lowest merge node holding every visible leaf (their MRCA).
+    let subtreeRoot = dendro.merge.length - 1;
+    for (let i = 0; i < dendro.merge.length; i++) {
+      if (nodeVisCount[i] === visibleLeafSet.size) { subtreeRoot = i; break; }
+    }
+
+    // Collect only the merge rows that belong to the subtree rooted at subtreeRoot.
+    const subtreeSteps = new Set();
+    const stack = [subtreeRoot + 1]; // 1-based step code
+    while (stack.length) {
+      const code = stack.pop();
+      if (code < 0) continue; // leaf
+      const idx = code - 1;
+      subtreeSteps.add(idx);
+      const [l, r] = dendro.merge[idx];
+      if (l > 0) stack.push(l);
+      if (r > 0) stack.push(r);
+    }
+
+    // Filtered merge/height of the subtree, step codes remapped to new 1-based
+    // indices, in topological order (children before parents, as hclust).
+    const oldToNew = new Int32Array(dendro.merge.length).fill(-1);
+    const newMerge = [];
+    const newHeight = [];
+    for (let i = 0; i < dendro.merge.length; i++) {
+      if (!subtreeSteps.has(i)) continue;
+      const newIdx = newMerge.length;
+      oldToNew[i] = newIdx;
+      const [l, r] = dendro.merge[i];
+      const newL = l < 0 ? l : (oldToNew[l - 1] >= 0 ? oldToNew[l - 1] + 1 : l);
+      const newR = r < 0 ? r : (oldToNew[r - 1] >= 0 ? oldToNew[r - 1] + 1 : r);
+      newMerge.push([newL, newR]);
+      newHeight.push(dendro.height[i]);
+    }
+
+    return layoutDendrogram(newMerge, newHeight, visibleLeafSet.size, cellMapping);
+  }, [dendro, hasValidDendro, nCells, cellOrder, data.profiles, yRange]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !hasValidDendro || nCells < 2 || maxH === 0) return;
+    const ctx = fit(canvas, width, height);
+    ctx.clearRect(0, 0, width, height);
+    const yr = yRange || [0, nCells];
+    const ySpan = yr[1] - yr[0] || 1;
+    // sqrt-scaled heights, as the viewer: the many low merges stay readable
+    const xScale = h => width - PAD - Math.sqrt(h / maxH) * (width - PAD * 2);
+    const yScale = ci => HM_TOP + ((ci - yr[0]) / ySpan) * plotH;
+
+    ctx.strokeStyle = css("--ink3");
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    for (const s of segments) {
+      const minY = Math.min(s.y1, s.y2);
+      const maxY = Math.max(s.y1, s.y2);
+      if (maxY < yr[0] || minY > yr[1]) continue;
+      // Horizontal segments draw as-is; vertical segments clamp to viewport
+      const drawY1 = s.y1 === s.y2 ? s.y1 : Math.max(yr[0], Math.min(yr[1], s.y1));
+      const drawY2 = s.y1 === s.y2 ? s.y2 : Math.max(yr[0], Math.min(yr[1], s.y2));
+      ctx.moveTo(xScale(s.x1), yScale(drawY1));
+      ctx.lineTo(xScale(s.x2), yScale(drawY2));
+    }
+    ctx.stroke();
+  }, [segments, maxH, hasValidDendro, nCells, width, height, yRange, plotH, theme]);
+
+  if (!hasValidDendro || nCells < 2) return null;
+  return <canvas ref={canvasRef} style={{ width, height, flexShrink: 0 }} />;
+}));
+
 /* ═══════════════════════════════════════════════════════════════════════════
    HEATMAP (2-layer canvas: data layer + overlay layer)
    ═══════════════════════════════════════════════════════════════════════════ */
-const HeatmapPanel = memo(forwardRef(function HeatmapPanel({ data, cellOrder, chrInfo, selectedCell, onCellClick, height = 500, alleleMode = false, zoom, onZoomChange, showDendro = false, lightMode = false }, ref) {
-  const DENDRO_W = showDendro && data.dendrogram ? 100 : 0;
+const HeatmapPanel = memo(forwardRef(function HeatmapPanel({ data, cellOrder, chrInfo, selectedCell, onCellClick, height = 500, alleleMode = false, zoom, onZoomChange, showDendro = false, theme }, ref) {
+  const DENDRO_W = showDendro && data.dendrogram ? 92 : 0;
   const nCells = cellOrder.length;
   const yRange = useMemo(() => zoom?.y || [0, nCells], [zoom, nCells]);
   const cytobands = useCytobands();
@@ -558,76 +582,37 @@ const HeatmapPanel = memo(forwardRef(function HeatmapPanel({ data, cellOrder, ch
   const heatmapRef = useRef();
 
   useImperativeHandle(ref, () => ({
-    download(basename = "heatmap", format = "png") {
-      const hc = heatmapRef.current;
-      const dc = dendroRef.current;
-      if (!hc) return;
-      const dW = dc ? dc.width : 0;
-      const composite = document.createElement("canvas");
-      composite.width = dW + hc.width;
-      composite.height = hc.height;
-      const ctx = composite.getContext("2d");
-      ctx.fillStyle = lightMode ? "#ffffff" : "#1c1c1e";
-      ctx.fillRect(0, 0, composite.width, composite.height);
-      if (dc) ctx.drawImage(dc, 0, 0);
-      ctx.drawImage(hc, dW, 0);
-      if (format === "pdf") {
-        const cssW = (dc ? dc.offsetWidth : 0) + hc.offsetWidth;
-        const cssH = hc.offsetHeight;
-        const dataUrl = composite.toDataURL("image/png");
-        const pdf = new jsPDF({ orientation: cssW > cssH ? "landscape" : "portrait", unit: "px", format: [cssW, cssH], hotfixes: ["px_scaling"] });
-        pdf.addImage(dataUrl, "PNG", 0, 0, cssW, cssH);
-        pdf.save(basename + ".pdf");
-      } else {
-        const link = document.createElement("a");
-        link.download = basename + ".png";
-        link.href = composite.toDataURL("image/png");
-        link.click();
-      }
-    }
-  }), [lightMode]);
+    download(basename = "heatmap", format = "png") { saveCanvas([DENDRO_W ? dendroRef.current : null, heatmapRef.current], basename, format); },
+  }), [DENDRO_W]);
 
   return (
-    <div className="flex w-full">
+    <div className="hmwrap" style={{ display: "flex", width: "100%" }}>
       {DENDRO_W > 0 && (
-        <DendrogramCanvas ref={dendroRef} data={data} cellOrder={cellOrder} height={height} yRange={yRange} width={DENDRO_W} lightMode={lightMode} alleleMode={alleleMode} />
+        <DendrogramCanvas ref={dendroRef} data={data} cellOrder={cellOrder} height={height} yRange={yRange} width={DENDRO_W} theme={theme} alleleMode={alleleMode} />
       )}
-      <div className="flex-1 min-w-0">
+      <div style={{ flex: 1, minWidth: 0 }}>
         <HeatmapCanvas ref={heatmapRef} data={data} cellOrder={cellOrder} chrInfo={chrInfo}
           selectedCell={selectedCell} onCellClick={onCellClick} height={height}
-          alleleMode={alleleMode} zoom={zoom} onZoomChange={onZoomChange} lightMode={lightMode} cytobands={cytobands} />
+          alleleMode={alleleMode} zoom={zoom} onZoomChange={onZoomChange} theme={theme} cytobands={cytobands} />
       </div>
     </div>
   );
 }));
 
-const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, chrInfo, selectedCell, onCellClick, height, alleleMode, zoom, onZoomChange, lightMode, cytobands }, ref) {
+const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, chrInfo, selectedCell, onCellClick, height, alleleMode, zoom, onZoomChange, theme, cytobands }, ref) {
   const dataCanvasRef = useRef();
   const overlayCanvasRef = useRef();
   useImperativeHandle(ref, () => dataCanvasRef.current, []);
   const containerRef = useRef();
-  const [cw, setCw] = useState(800);
+  const cw = useWidthOf(containerRef);
   const brushRef = useRef(null);
   const isDragging = useRef(false);
   const prevOverlaySize = useRef({ w: 0, h: 0 });
 
-  const MARGIN = { top: 4, right: 75, bottom: 20, left: 0 };
-  const IDEOGRAM_H = 16;
-  const MARGIN_TOP_TOTAL = MARGIN.top + IDEOGRAM_H + 2;
-
-  useEffect(() => {
-    const ro = new ResizeObserver(entries => {
-      const w = entries[0]?.contentRect.width;
-      if (w && w > 0) setCw(Math.round(w));
-    });
-    if (containerRef.current) ro.observe(containerRef.current);
-    return () => ro.disconnect();
-  }, []);
-
   const nBins = data.bins.chr.length;
   const nCells = cellOrder.length;
-  const plotW = cw - MARGIN.left - MARGIN.right;
-  const plotH = height - MARGIN_TOP_TOTAL - MARGIN.bottom;
+  const plotW = cw;
+  const plotH = height - HM_TOP - HM_BOT;
   const genomeMax = useMemo(() => nBins > 0 ? data.bins.end_cum[nBins - 1] : 1, [data, nBins]);
 
   const xRange = useMemo(() => zoom?.x || [0, genomeMax], [zoom, genomeMax]);
@@ -635,59 +620,50 @@ const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, 
   const xSpan = xRange[1] - xRange[0] || 1;
   const ySpan = yRange[1] - yRange[0] || 1;
 
-  const ML = MARGIN.left, MTT = MARGIN_TOP_TOTAL;
-  const toPxX = useCallback(gx => ML  + ((gx - xRange[0]) / xSpan) * plotW, [ML,  xRange, xSpan, plotW]);
+  const MTT = HM_TOP;
+  const toPxX = useCallback(gx => ((gx - xRange[0]) / xSpan) * plotW, [xRange, xSpan, plotW]);
   const toPxY = useCallback(ci => MTT + ((ci - yRange[0]) / ySpan) * plotH, [MTT, yRange, ySpan, plotH]);
-  const toGx  = useCallback(px => xRange[0] + ((px - ML)  / plotW) * xSpan, [ML,  xRange, xSpan, plotW]);
+  const toGx  = useCallback(px => xRange[0] + (px / plotW) * xSpan, [xRange, xSpan, plotW]);
   const toCi  = useCallback(py => yRange[0] + ((py - MTT) / plotH) * ySpan, [MTT, yRange, ySpan, plotH]);
 
   // ── DATA LAYER ──
-  // alleleMode IS in the dep array — the fix for lag is to not debounce/memo it
-  // separately; instead we ensure the draw is cheap by using pre-computed RGB fns.
   useEffect(() => {
     const canvas = dataCanvasRef.current;
-    if (!canvas || nCells === 0) return;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = cw * dpr; canvas.height = height * dpr;
-    canvas.style.width = cw + "px"; canvas.style.height = height + "px";
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    const bg    = lightMode ? "#ffffff" : "#1c1c1e";
-    const chrTx = lightMode ? "#1e293b" : "#a0a0a0";
-    const chrBd = lightMode ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.08)";
-    const cnRGB = cnRGBDark;
-
-    ctx.fillStyle = bg; ctx.fillRect(0, 0, cw, height);
+    if (!canvas) return;
+    const ctx = fit(canvas, cw, height);
+    ctx.clearRect(0, 0, cw, height);
+    if (nCells === 0) {
+      ctx.fillStyle = css("--ink3"); ctx.font = `13px ${FONT}`; ctx.fillText("No cell passes the filters.", 12, MTT + 30);
+      return;
+    }
+    const cnRGB = cnPalette(), asNA = hexRGB(css("--cnna"));
+    const dark = document.documentElement.dataset.theme === "dark";
 
     // ── Ideogram (cytobands) ──
     if (cytobands && cytobands.length > 0) {
-      const ideoY = MARGIN.top;
-      // Always draw on a white background for correct G-banding appearance
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(ML, ideoY, plotW, IDEOGRAM_H);
       const chrOffsets = {};
       chrInfo.forEach(ci => { chrOffsets[ci.chr] = ci.start_cum; });
+      ctx.fillStyle = dark ? css("--field") : "#ffffff";
+      ctx.fillRect(0, IDEO_Y, plotW, IDEO_H);
       for (const band of cytobands) {
         const offset = chrOffsets[band.chr];
         if (offset === undefined) continue;
         const cumS = offset + band.start;
         const cumE = offset + band.end;
         if (cumE <= xRange[0] || cumS >= xRange[1]) continue;
-        const px0 = Math.max(ML, Math.floor(toPxX(Math.max(cumS, xRange[0]))));
-        const px1 = Math.min(ML + plotW, Math.ceil(toPxX(Math.min(cumE, xRange[1]))));
+        const px0 = Math.max(0, Math.floor(toPxX(Math.max(cumS, xRange[0]))));
+        const px1 = Math.min(plotW, Math.ceil(toPxX(Math.min(cumE, xRange[1]))));
         if (px1 <= px0) continue;
-        ctx.fillStyle = STAIN_COLORS[band.stain] || "#AAAAAA";
-        ctx.fillRect(px0, ideoY, px1 - px0, IDEOGRAM_H);
+        ctx.fillStyle = band.stain === "gneg" && dark ? css("--field") : STAIN_COLORS[band.stain] || "#AAAAAA";
+        ctx.fillRect(px0, IDEO_Y, px1 - px0, IDEO_H);
       }
-      // Chromosome outline boxes
-      ctx.strokeStyle = "rgba(0,0,0,0.35)";
+      ctx.strokeStyle = css("--line2");
       ctx.lineWidth = 0.5;
       chrInfo.forEach(({ start_cum, end_cum }) => {
         if (end_cum <= xRange[0] || start_cum >= xRange[1]) return;
-        const px0 = Math.max(ML, Math.floor(toPxX(Math.max(start_cum, xRange[0]))));
-        const px1 = Math.min(ML + plotW, Math.ceil(toPxX(Math.min(end_cum, xRange[1]))));
-        if (px1 > px0 + 1) ctx.strokeRect(px0 + 0.5, ideoY + 0.5, px1 - px0 - 1, IDEOGRAM_H - 1);
+        const px0 = Math.max(0, Math.floor(toPxX(Math.max(start_cum, xRange[0]))));
+        const px1 = Math.min(plotW, Math.ceil(toPxX(Math.min(end_cum, xRange[1]))));
+        if (px1 > px0 + 1) ctx.strokeRect(px0 + 0.5, IDEO_Y + 0.5, px1 - px0 - 1, IDEO_H - 1);
       });
     }
 
@@ -726,7 +702,8 @@ const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, 
 
           let r, g, b;
           if (alleleMode && data.nMajor?.[cell] && data.nMinor?.[cell]) {
-            [r, g, b] = asRGB(data.nMajor[cell][bi], data.nMinor[cell][bi]);
+            const k = asKey(data.nMajor[cell][bi], data.nMinor[cell][bi]);
+            [r, g, b] = k ? AS_RGB[k] : asNA;
           } else {
             const prof = data.profiles[cell]; if (!prof) continue;
             [r, g, b] = cnRGB(prof[bi]);
@@ -740,9 +717,8 @@ const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, 
           }
           // Copy first row to remaining rows of this cell
           for (let dy = 1; dy < rowH; dy++) {
-            const srcStart = rowBase;
             const dstStart = ((startRow + dy) * tileW + startCol) * 4;
-            buf.copyWithin(dstStart, srcStart, srcStart + colW * 4);
+            buf.copyWithin(dstStart, rowBase, rowBase + colW * 4);
           }
         }
       }
@@ -750,74 +726,26 @@ const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, 
       ctx.drawImage(offscreen, tileX0, tileY0);
     }
 
-    // ── Chromosome boundaries + labels ──
-    ctx.strokeStyle = chrBd; ctx.lineWidth = 1;
+    // ── Chromosome separators (surface-coloured gaps) and labels ──
+    ctx.fillStyle = css("--hm-gap");
     chrInfo.forEach(({ start_cum }) => {
-      if (start_cum < xRange[0] || start_cum > xRange[1]) return;
-      const px = Math.round(toPxX(start_cum)) + 0.5;
-      ctx.beginPath(); ctx.moveTo(px, MTT); ctx.lineTo(px, MTT + plotH); ctx.stroke();
+      if (start_cum <= xRange[0] || start_cum > xRange[1]) return;
+      ctx.fillRect(toPxX(start_cum) - 0.75, MTT, 1.5, plotH);
     });
-    ctx.fillStyle = chrTx; ctx.font = "11px system-ui"; ctx.textAlign = "center";
-    chrInfo.forEach(({ chr, mid_cum }) => {
-      if (mid_cum < xRange[0] || mid_cum > xRange[1]) return;
-      ctx.fillText(chr.replace("chr", ""), toPxX(mid_cum), MTT + plotH + 14);
+    ctx.fillStyle = css("--ink2"); ctx.font = `11px ${FONT}`; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+    let lastLabel = -1e9;
+    chrInfo.forEach(({ chr, start_cum, end_cum }) => {
+      if (end_cum < xRange[0] || start_cum > xRange[1]) return;
+      const a = toPxX(Math.max(start_cum, xRange[0])), b = toPxX(Math.min(end_cum, xRange[1])), mid = (a + b) / 2;
+      if (b - a > 14 && mid - lastLabel > 22) { ctx.fillText(chrLabel(chr), mid, LABEL_Y); lastLabel = mid; }
     });
-
-    // ── Right-side CN Legend ──
-    const cnEntries = CN_LEGEND_ENTRIES;
-    const legX = ML + plotW + 6;
-    const boxW = 22, boxH = 15, gap = 2;
-    if (!alleleMode) {
-      ctx.font = "bold 8px system-ui"; ctx.fillStyle = chrTx; ctx.textAlign = "left";
-      ctx.fillText("Copy no.", legX, MTT + 9);
-      let cy = MTT + 14;
-      ctx.font = "bold 9px system-ui";
-      for (const [cn, label] of cnEntries) {
-        ctx.fillStyle = cnColor(cn, false);
-        ctx.fillRect(legX, cy, boxW, boxH);
-        ctx.fillStyle = cn === 2 ? "#374151" : "#e2e8f0";
-        ctx.textAlign = "center";
-        ctx.fillText(label, legX + boxW / 2, cy + 10);
-        cy += boxH + gap;
-      }
-      ctx.textAlign = "start";
-    } else {
-      // Allele-specific legend: state swatches grouped by total CN, matching R's build_allele_legend()
-      const asGroups = [
-        ["0|0"],
-        ["1|0"],
-        ["1|1","2|0"],
-        ["2|1","3|0"],
-        ["2|2","3|1","4|0"],
-        ["3|2","4|1","5|0"],
-        ["3|3","4|2","5|1","6|0"],
-        ["4|3","5|2","6|1","7|0"],
-        ["7+"],
-      ];
-      const swH = 10, swW = boxW, swGap = 1;
-      ctx.font = "bold 8px system-ui"; ctx.fillStyle = chrTx; ctx.textAlign = "left";
-      ctx.fillText("State", legX, MTT + 9);
-      let cy = MTT + 13;
-      for (const group of asGroups) {
-        for (const state of group) {
-          const [r, g, b] = AS_RGB[state] || AS_RGB_NA;
-          ctx.fillStyle = `rgb(${r},${g},${b})`;
-          ctx.fillRect(legX, cy, swW, swH);
-          ctx.fillStyle = chrTx; ctx.font = "7px system-ui"; ctx.textAlign = "left";
-          ctx.fillText(state, legX + swW + 2, cy + swH - 2);
-          cy += swH + swGap;
-        }
-        cy += 2; // extra gap between groups
-      }
-      ctx.textAlign = "start";
-    }
-  }, [data, cellOrder, cw, height, alleleMode, lightMode, xRange, yRange, nBins, nCells, plotW, plotH, chrInfo, toPxX, toPxY, MTT, ML, cytobands]);
+  }, [data, cellOrder, cw, height, alleleMode, theme, xRange, yRange, nBins, nCells, plotW, plotH, chrInfo, toPxX, toPxY, MTT, cytobands]);
 
   // ── OVERLAY LAYER ──
   const drawOverlay = useCallback(() => {
     const canvas = overlayCanvasRef.current;
     if (!canvas) return;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
     if (prevOverlaySize.current.w !== cw || prevOverlaySize.current.h !== height) {
       canvas.width = cw * dpr; canvas.height = height * dpr;
       canvas.style.width = cw + "px"; canvas.style.height = height + "px";
@@ -832,8 +760,9 @@ const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, 
       if (idx >= 0) {
         const y0 = toPxY(idx), y1 = toPxY(idx + 1);
         if (y1 > MTT && y0 < MTT + plotH) {
-          ctx.strokeStyle = "#FF9500"; ctx.lineWidth = 2;
-          ctx.strokeRect(ML + 1, y0, plotW - 2, y1 - y0);
+          const hh = Math.max(2, y1 - y0);
+          ctx.strokeStyle = css("--accent"); ctx.lineWidth = 2;
+          ctx.strokeRect(1, (y0 + y1) / 2 - hh / 2 - 1, plotW - 2, hh + 2);
         }
       }
     }
@@ -841,27 +770,43 @@ const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, 
     if (b && isDragging.current) {
       const x0 = Math.min(b.sx, b.cx), y0 = Math.min(b.sy, b.cy);
       const w = Math.abs(b.cx - b.sx), h = Math.abs(b.cy - b.sy);
-      ctx.fillStyle = "rgba(10,132,255,0.12)";
-      ctx.strokeStyle = "rgba(10,132,255,0.6)"; ctx.lineWidth = 1.5;
+      ctx.fillStyle = css("--accent-soft");
+      ctx.strokeStyle = css("--accent"); ctx.lineWidth = 1;
       ctx.fillRect(x0, y0, w, h); ctx.strokeRect(x0, y0, w, h);
     }
-  }, [cw, height, selectedCell, cellOrder, nCells, toPxY, plotW, plotH, MTT, ML]);
+  }, [cw, height, selectedCell, cellOrder, nCells, toPxY, plotW, plotH, MTT]);
 
-  useEffect(() => { drawOverlay(); }, [drawOverlay]);
+  useEffect(() => { drawOverlay(); }, [drawOverlay, theme]);
 
   const getXY = e => {
     const rect = overlayCanvasRef.current.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
+  const hover = (e, p) => {
+    const ci = Math.floor(toCi(p.y));
+    if (p.y < MTT || ci < 0 || ci >= nCells) { tip(e, null); return; }
+    const cell = cellOrder[ci], bi = binAt(data.bins, toGx(p.x));
+    let val;
+    if (alleleMode && data.nMajor?.[cell]) {
+      const k = asKey(data.nMajor[cell][bi], data.nMinor[cell][bi]);
+      val = k ? `${swatch(AS_COLORS[k])} ${k}` : "no value";
+    } else {
+      const v = data.profiles[cell]?.[bi];
+      val = v == null ? "no value" : `${swatch(css("--cn" + Math.max(0, Math.min(6, Math.round(v)))))} ${v}`;
+    }
+    const ct = data.cell_types?.[cell];
+    tip(e, `<b class="mono">${esc(cell)}</b>${ct ? ` <span class="k">· ${esc(ct)}</span>` : ""}<br><span class="k">${chrLabel(data.bins.chr[bi])}:${fmtBp(data.bins.start[bi])}–${fmtBp(data.bins.end[bi])}</span><br>${alleleMode ? "major|minor" : "copy number"} <b>${val}</b>`);
   };
   const handleMouseDown = e => {
     if (e.button !== 0) return;
     const p = getXY(e);
     brushRef.current = { sx: p.x, sy: p.y, cx: p.x, cy: p.y };
     isDragging.current = true;
+    tip(e, null);
   };
   const handleMouseMove = e => {
-    if (!isDragging.current) return;
     const p = getXY(e);
+    if (!isDragging.current) { hover(e, p); return; }
     brushRef.current.cx = p.x; brushRef.current.cy = p.y;
     drawOverlay();
   };
@@ -877,7 +822,7 @@ const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, 
       if (ci >= 0 && ci < nCells) onCellClick(cellOrder[ci]);
     } else if (dx > 8 || dy > 8) {
       const gx0 = toGx(Math.min(b.sx, p.x)), gx1 = toGx(Math.max(b.sx, p.x));
-      const cy0 = toCi(Math.min(b.sy, p.y)), cy1 = toCi(Math.max(b.sy, p.y));
+      const cy0 = toCi(Math.max(MTT, Math.min(b.sy, p.y))), cy1 = toCi(Math.max(b.sy, p.y));
       onZoomChange({
         x: [Math.max(0, gx0), Math.min(genomeMax, gx1)],
         y: [Math.max(0, cy0), Math.min(nCells, cy1)],
@@ -920,387 +865,200 @@ const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, 
     return () => canvas.removeEventListener("wheel", handleWheel);
   }, [handleWheel]);
 
-  const canvasBg = lightMode ? "#f8fafc" : "#1c1c1e";
   return (
-    <div ref={containerRef} className="w-full relative" style={{ background: canvasBg }}>
-      <canvas ref={dataCanvasRef} style={{ width: cw, height, display: "block", borderRadius: "8px" }} />
+    <div ref={containerRef} style={{ width: "100%", position: "relative" }}>
+      <canvas ref={dataCanvasRef} style={{ width: cw, height }} />
       <canvas ref={overlayCanvasRef}
-        style={{ width: cw, height, position: "absolute", top: 0, left: 0, cursor: "crosshair", borderRadius: "8px" }}
+        style={{ width: cw, height, position: "absolute", top: 0, left: 0, cursor: "crosshair" }}
         onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}
-        onMouseLeave={() => { if (isDragging.current) { isDragging.current = false; brushRef.current = null; drawOverlay(); } }}
+        onMouseLeave={e => { tip(e, null); if (isDragging.current) { isDragging.current = false; brushRef.current = null; drawOverlay(); } }}
         onDoubleClick={() => onZoomChange(null)} />
     </div>
   );
 }));
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   PROFILE PLOT (canvas) — total CN & allele-specific
+   PROFILE PLOT (canvas) — total CN & allele-specific, following the heatmap's
+   genomic zoom. Read depth draws underneath on the same x scale.
    ═══════════════════════════════════════════════════════════════════════════ */
-const ProfilePlot = memo(forwardRef(function ProfilePlot({ data, cellName, showRaw = true, height = 280, alleleMode = false, lightMode = false, showCi = true }, ref) {
-  const containerRef = useRef(); const canvasRef = useRef(); const [width, setWidth] = useState(800);
-  useImperativeHandle(ref, () => ({
-    download(basename = "cell_profile", format = "png") {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const out = document.createElement("canvas");
-      out.width = canvas.width; out.height = canvas.height;
-      const ctx = out.getContext("2d");
-      ctx.fillStyle = lightMode ? "#ffffff" : "#1c1c1e";
-      ctx.fillRect(0, 0, out.width, out.height);
-      ctx.drawImage(canvas, 0, 0);
-      if (format === "pdf") {
-        const cssW = canvas.offsetWidth;
-        const cssH = canvas.offsetHeight;
-        const dataUrl = out.toDataURL("image/png");
-        const pdf = new jsPDF({ orientation: cssW > cssH ? "landscape" : "portrait", unit: "px", format: [cssW, cssH], hotfixes: ["px_scaling"] });
-        pdf.addImage(dataUrl, "PNG", 0, 0, cssW, cssH);
-        pdf.save(basename + ".pdf");
-      } else {
-        const link = document.createElement("a");
-        link.download = basename + ".png";
-        link.href = out.toDataURL("image/png");
-        link.click();
-      }
-    }
-  }), [lightMode]);
-  const ML = 48, MT = 24, MR = 20, MB = 36;
-  useEffect(() => {
-    const ro = new ResizeObserver(e => { const w = e[0]?.contentRect.width; if (w > 0) setWidth(Math.round(w)); });
-    if (containerRef.current) ro.observe(containerRef.current);
-    return () => ro.disconnect();
-  }, []);
+const PR = { l: 40, t: 12, r: 10, b: 26 };
+
+function drawChromosomes(g, data, xS, gx0, gx1, top, h, labelY) {
+  g.textAlign = "center"; g.textBaseline = "alphabetic"; g.font = `11px ${FONT}`;
+  let last = -1e9;
+  for (const { chr, start_cum, end_cum } of data.chr_info) {
+    if (end_cum < gx0 || start_cum > gx1) continue;
+    const a = xS(Math.max(start_cum, gx0)), b = xS(Math.min(end_cum, gx1));
+    if (start_cum > gx0) { g.strokeStyle = css("--line2"); g.lineWidth = 1; g.beginPath(); g.moveTo(Math.round(a) + 0.5, top); g.lineTo(Math.round(a) + 0.5, top + h); g.stroke(); }
+    const mid = (a + b) / 2;
+    if (labelY != null && b - a > 12 && mid - last > 20) { g.fillStyle = css("--ink2"); g.fillText(chrLabel(chr), mid, labelY); last = mid; }
+  }
+}
+
+/** Runs of one integer state within a chromosome: [first bin, last bin + 1, state]. */
+function runsOf(data, vals) {
+  const out = [], nb = vals.length, chr = data.bins.chr;
+  for (let s = 0; s < nb;) {
+    let e = s + 1; while (e < nb && vals[e] === vals[s] && chr[e] === chr[s]) e++;
+    if (vals[s] != null) out.push([s, e, vals[s]]);
+    s = e;
+  }
+  return out;
+}
+
+const ProfilePlot = memo(forwardRef(function ProfilePlot({ data, cellName, height = 300, alleleMode = false, showCi = true, zoomX, theme }, ref) {
+  const containerRef = useRef(); const canvasRef = useRef();
+  const width = useWidthOf(containerRef);
+  useImperativeHandle(ref, () => canvasRef.current, []);
+  const nBins = data.bins.chr.length, genomeMax = data.bins.end_cum[nBins - 1];
+  const [gx0, gx1] = zoomX || [0, genomeMax];
+  const isAS = !!(alleleMode && data.nMajor?.[cellName] && data.nMinor?.[cellName]);
+  const raw = cellName ? data.raw?.[cellName] : null;
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !cellName || !data.profiles[cellName]) return;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr; canvas.height = height * dpr;
-    canvas.style.width = width + "px"; canvas.style.height = height + "px";
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    const plotW = width - ML - MR, plotH = height - MT - MB;
-    const nBins = data.bins.chr.length, genomeMax = data.bins.end_cum[nBins - 1];
-    const xS = v => ML + (v / genomeMax) * plotW;
-    const isAS = alleleMode && data.nMajor?.[cellName] && data.nMinor?.[cellName];
+    const g = fit(canvas, width, height); g.clearRect(0, 0, width, height);
+    const plotW = width - PR.l - PR.r, plotH = height - PR.t - PR.b;
+    const xS = v => PR.l + ((v - gx0) / (gx1 - gx0)) * plotW;
     const prof = data.profiles[cellName];
-    let maxCN = 5;
-    if (isAS) maxCN = Math.max(5, (d3.max(data.nMajor[cellName].filter(v => v != null)) || 4) + 1);
-    else      maxCN = Math.max(5, (d3.max(prof.filter(v => v != null)) || 4) + 1);
-    const yS = v => MT + plotH - (v / maxCN) * plotH;
+    const top = (arr) => { let m = 0; for (const v of arr) if (v != null && v > m) m = v; return m; };
+    const ymax = Math.max(5, Math.min(12, (isAS ? top(data.nMajor[cellName]) : top(prof)) + 1));
+    const Y = v => PR.t + plotH - (Math.max(-0.3, Math.min(ymax + 0.4, v)) / (ymax + 0.4)) * plotH;
 
-    const textCol = lightMode ? "#374151" : "#94a3b8";
-    const axisCol = lightMode ? "#9ca3af" : "#374151";
-    const refCol  = lightMode ? "#9ca3af" : "#4b5563";
-    const plotBg  = lightMode ? "#eef0f3" : "#161618";   // recessed backdrop — distinguishes the chart from its white card
-    const bandTint= lightMode ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.045)"; // odd chromosomes lighten the backdrop
-    const chrDiv  = lightMode ? "rgba(0,0,0,0.1)" : "rgba(255,255,255,0.1)";
-    const rawCol  = lightMode ? "rgba(107,114,128,0.45)" : "rgba(209,213,219,0.4)";
-
-    // Background — flush with the surrounding white/dark card
-    ctx.fillStyle = lightMode ? "#ffffff" : "transparent";
-    ctx.clearRect(0, 0, width, height);
-    if (lightMode) ctx.fillRect(0, 0, width, height);
-
-    // Recessed plot backdrop, framed and clearly separated from the card around it
-    ctx.fillStyle = plotBg;
-    ctx.fillRect(ML, MT, plotW, plotH);
-
-    // Alternating chromosome bins — tinted bands + crisp divider at each boundary
-    data.chr_info.forEach(({ start_cum, end_cum }, i) => {
-      if (i % 2 === 1) {
-        ctx.fillStyle = bandTint;
-        ctx.fillRect(xS(start_cum), MT, xS(end_cum) - xS(start_cum), plotH);
-      }
-    });
-    ctx.strokeStyle = chrDiv; ctx.lineWidth = 1;
-    data.chr_info.forEach(({ start_cum }, i) => {
-      if (i === 0) return;
-      const px = Math.round(xS(start_cum)) + 0.5;
-      ctx.beginPath(); ctx.moveTo(px, MT); ctx.lineTo(px, MT + plotH); ctx.stroke();
-    });
-    ctx.strokeRect(Math.round(ML) + 0.5, Math.round(MT) + 0.5, Math.round(plotW) - 1, Math.round(plotH) - 1);
-
-    // Reference lines (dashed)
-    ctx.strokeStyle = refCol; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
-    (isAS ? [1, 2] : [2]).forEach(ref => {
-      const py = yS(ref);
-      ctx.beginPath(); ctx.moveTo(ML, py); ctx.lineTo(ML + plotW, py); ctx.stroke();
-    });
-    ctx.setLineDash([]);
-
-    // Raw data dots
-    if (!isAS && showRaw && data.raw?.[cellName]) {
-      const rawVals = data.raw[cellName];
-      ctx.fillStyle = rawCol;
-      for (let i = 0; i < nBins; i += 2) {
-        if (rawVals[i] == null) continue;
-        const cx = xS((data.bins.start_cum[i] + data.bins.end_cum[i]) / 2);
-        const cy = yS(rawVals[i]);
-        ctx.beginPath(); ctx.arc(cx, cy, 2, 0, 6.2832); ctx.fill();
-      }
+    // grid: one line per copy number, solid at 2
+    g.font = `11px ${FONT}`; g.strokeStyle = css("--grid"); g.lineWidth = 1; g.fillStyle = css("--ink3"); g.textAlign = "right"; g.textBaseline = "middle";
+    for (let y = 0; y <= ymax; y++) {
+      g.setLineDash(y === 2 ? [] : [3, 4]); g.beginPath(); g.moveTo(PR.l, Y(y)); g.lineTo(PR.l + plotW, Y(y)); g.stroke();
+      g.fillText(y, PR.l - 8, Y(y));
     }
+    g.setLineDash([]);
+    drawChromosomes(g, data, xS, gx0, gx1, PR.t, plotH, PR.t + plotH + 18);
+    g.save(); g.beginPath(); g.rect(PR.l, 0, plotW, height); g.clip();
 
-    // Segment lines
-    const drawSegs = (vals, color, lw, yOff = 0) => {
-      ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.lineCap = "round";
-      let ss = 0;
-      ctx.beginPath();
-      for (let i = 1; i <= nBins; i++) {
-        if (i === nBins || vals[i] !== vals[ss] || data.bins.chr[i] !== data.bins.chr[ss]) {
-          if (vals[ss] != null) {
-            const py = yS(vals[ss]) + yOff;
-            ctx.moveTo(xS(data.bins.start_cum[ss]), py);
-            ctx.lineTo(xS(data.bins.end_cum[i - 1]), py);
-          }
-          ss = i;
-        }
+    let b0 = 0, b1 = nBins;
+    for (let i = 0; i < nBins; i++) if (data.bins.end_cum[i] >= gx0) { b0 = i; break; }
+    for (let i = nBins - 1; i >= 0; i--) if (data.bins.start_cum[i] <= gx1) { b1 = i + 1; break; }
+    const nz = b1 - b0;
+    // bins on the copy-number scale
+    if (raw) {
+      g.fillStyle = css("--points"); g.globalAlpha = 0.55;
+      const r = nz > 1500 ? 1.3 : nz > 400 ? 1.8 : 2.6;
+      for (let i = b0; i < b1; i++) {
+        const v = raw[i]; if (v == null || !isFinite(v)) continue;
+        g.beginPath(); g.arc(xS((data.bins.start_cum[i] + data.bins.end_cum[i]) / 2), Y(v), r, 0, 7); g.fill();
       }
-      ctx.stroke();
-    };
-
-    if (isAS) {
-      // CI ribbons — drawn before segment lines, same logic as R's plot_allele_profile
-      const ciCell = showCi && data.ci?.[cellName];
-      if (ciCell) {
-        const { nMajor_lower, nMajor_upper, nMinor_lower, nMinor_upper } = ciCell;
-        const nMaj = data.nMajor[cellName];
-        const nMin = data.nMinor[cellName];
-        ctx.globalAlpha = 0.2;
-        // Major ribbon (red)
-        ctx.fillStyle = MAJOR_COLOR;
-        for (let i = 0; i < nBins; i++) {
-          if (nMaj[i] == null || nMajor_lower[i] == null) continue;
-          const yLo = yS(Math.max(nMaj[i], nMajor_upper[i]));
-          const yHi = yS(Math.min(nMaj[i], nMajor_lower[i]));
-          const x0 = xS(data.bins.start_cum[i]);
-          const x1 = xS(data.bins.end_cum[i]);
-          ctx.fillRect(x0, yLo, x1 - x0, yHi - yLo);
-        }
-        // Minor ribbon (blue)
-        ctx.fillStyle = MINOR_COLOR;
-        for (let i = 0; i < nBins; i++) {
-          if (nMin[i] == null || nMinor_lower[i] == null) continue;
-          const yLo = yS(Math.max(nMin[i], nMinor_upper[i]));
-          const yHi = yS(Math.min(nMin[i], nMinor_lower[i]));
-          const x0 = xS(data.bins.start_cum[i]);
-          const x1 = xS(data.bins.end_cum[i]);
-          ctx.fillRect(x0, yLo, x1 - x0, yHi - yLo);
-        }
-        ctx.globalAlpha = 1;
-      }
-      drawSegs(data.nMajor[cellName], MAJOR_COLOR, 2.5, -1);
-      drawSegs(data.nMinor[cellName], MINOR_COLOR, 2.5, 1);
+      g.globalAlpha = 1;
+    }
+    const runs = runsOf(data, prof);
+    // integer calls (total) — or the two alleles
+    if (!isAS) {
+      g.strokeStyle = css("--call"); g.lineWidth = 3; g.lineCap = "round"; g.beginPath();
+      for (const [s, e, cn] of runs) { g.moveTo(xS(data.bins.start_cum[s]) + 1, Y(Math.min(cn, ymax))); g.lineTo(xS(data.bins.end_cum[e - 1]) - 1, Y(Math.min(cn, ymax))); }
+      g.stroke();
     } else {
-      // Group segment lines by color so we batch strokes per CN value
-      const segsByColor = new Map();
-      let ss = 0;
-      for (let i = 1; i <= nBins; i++) {
-        if (i === nBins || prof[i] !== prof[ss] || data.bins.chr[i] !== data.bins.chr[ss]) {
-          if (prof[ss] != null) {
-            const col = cnColor(prof[ss], lightMode);
-            if (!segsByColor.has(col)) segsByColor.set(col, []);
-            segsByColor.get(col).push([data.bins.start_cum[ss], data.bins.end_cum[i - 1], prof[ss]]);
+      const ci = showCi && data.ci?.[cellName];
+      for (const [arr, col, lo, hi, off] of [[data.nMajor[cellName], "--major", "nMajor_lower", "nMajor_upper", 0.07], [data.nMinor[cellName], "--minor", "nMinor_lower", "nMinor_upper", -0.07]]) {
+        if (ci && ci[lo]) {
+          g.fillStyle = css(col); g.globalAlpha = 0.2;
+          for (let i = b0; i < b1; i++) {
+            if (arr[i] == null || ci[lo][i] == null) continue;
+            const yTop = Y(Math.max(arr[i], ci[hi][i])), yBot = Y(Math.min(arr[i], ci[lo][i]));
+            g.fillRect(xS(data.bins.start_cum[i]), yTop, xS(data.bins.end_cum[i]) - xS(data.bins.start_cum[i]), yBot - yTop);
           }
-          ss = i;
+          g.globalAlpha = 1;
         }
-      }
-      ctx.lineWidth = 2.5; ctx.lineCap = "round";
-      for (const [col, segs] of segsByColor) {
-        ctx.strokeStyle = col; ctx.beginPath();
-        for (const [s, e, cn] of segs) {
-          const py = yS(cn);
-          ctx.moveTo(xS(s), py); ctx.lineTo(xS(e), py);
-        }
-        ctx.stroke();
+        g.strokeStyle = css(col); g.lineWidth = 3; g.lineCap = "round"; g.beginPath();
+        for (const [s, e, v] of runsOf(data, arr)) { g.moveTo(xS(data.bins.start_cum[s]) + 1, Y(Math.min(v, ymax) + off)); g.lineTo(xS(data.bins.end_cum[e - 1]) - 1, Y(Math.min(v, ymax) + off)); }
+        g.stroke();
       }
     }
-
-    // Y axis
-    ctx.strokeStyle = axisCol; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(ML, MT); ctx.lineTo(ML, MT + plotH); ctx.stroke();
-    ctx.fillStyle = textCol; ctx.font = "10px system-ui"; ctx.textAlign = "right";
-    for (let cn = 0; cn <= maxCN; cn++) {
-      const py = yS(cn);
-      ctx.beginPath(); ctx.moveTo(ML - 4, py); ctx.lineTo(ML, py); ctx.stroke();
-      ctx.fillText(cn, ML - 6, py + 3);
+    // segment means of the bins
+    if (raw) {
+      g.strokeStyle = css("--mean"); g.lineWidth = 1.2; g.lineCap = "butt"; g.beginPath();
+      for (const [s, e] of runs) {
+        let m = 0, k = 0; for (let i = s; i < e; i++) if (raw[i] != null && isFinite(raw[i])) { m += raw[i]; k++; }
+        if (!k) continue; m /= k;
+        g.moveTo(xS(data.bins.start_cum[s]), Y(m)); g.lineTo(xS(data.bins.end_cum[e - 1]), Y(m));
+      }
+      g.stroke();
     }
-    // Y label
-    ctx.save(); ctx.translate(12, MT + plotH / 2); ctx.rotate(-Math.PI / 2);
-    ctx.textAlign = "center"; ctx.font = "11px system-ui";
-    ctx.fillText(isAS ? "Allele Copy Number" : "Copy Number", 0, 0);
-    ctx.restore();
+    g.restore();
+    if (!raw) { g.fillStyle = css("--ink3"); g.textAlign = "left"; g.textBaseline = "alphabetic"; g.fillText("no per-bin values in this export; showing the copy-number calls", PR.l + 8, PR.t + 14); }
+  }, [data, cellName, width, height, isAS, raw, showCi, gx0, gx1, nBins, theme]);
 
-    // Chr labels
-    ctx.fillStyle = textCol; ctx.font = "10px system-ui"; ctx.textAlign = "center";
-    data.chr_info.forEach(({ chr, mid_cum }) => {
-      ctx.fillText(chr.replace("chr", ""), xS(mid_cum), MT + plotH + 22);
-    });
+  const move = (e) => {
+    if (!cellName) return;
+    const r = canvasRef.current.getBoundingClientRect(), x = e.clientX - r.left, plotW = width - PR.l - PR.r;
+    if (x < PR.l || x > PR.l + plotW) { tip(e, null); return; }
+    const b = binAt(data.bins, gx0 + ((x - PR.l) / plotW) * (gx1 - gx0));
+    const line = isAS ? `major|minor <b>${data.nMajor[cellName][b] ?? "–"}|${data.nMinor[cellName][b] ?? "–"}</b>` : `copy number <b>${data.profiles[cellName][b] ?? "–"}</b>`;
+    const rd = data.reads?.[cellName]?.[b];
+    tip(e, `<span class="k">${chrLabel(data.bins.chr[b])}:${fmtBp(data.bins.start[b])}–${fmtBp(data.bins.end[b])}</span><br>${line}`
+      + (raw && raw[b] != null ? `<br><span class="k">bin on the CN scale</span> ${fmt(raw[b])}` : "")
+      + (rd != null ? `<br><span class="k">reads</span> ${rd}` : ""));
+  };
 
-    // AS legend
-    if (isAS) {
-      const lgX = ML + 8, lgY = 14;
-      ctx.lineWidth = 2.5; ctx.lineCap = "round";
-      ctx.strokeStyle = MAJOR_COLOR; ctx.beginPath(); ctx.moveTo(lgX, lgY); ctx.lineTo(lgX + 18, lgY); ctx.stroke();
-      ctx.fillStyle = textCol; ctx.textAlign = "left"; ctx.font = "10px system-ui";
-      ctx.fillText("nMajor", lgX + 22, lgY + 4);
-      ctx.strokeStyle = MINOR_COLOR; ctx.beginPath(); ctx.moveTo(lgX + 80, lgY); ctx.lineTo(lgX + 98, lgY); ctx.stroke();
-      ctx.fillText("nMinor", lgX + 102, lgY + 4);
-    }
-  }, [data, cellName, width, height, showRaw, alleleMode, lightMode, showCi]);
-
-  if (!cellName) return <div className="flex items-center justify-center h-40 text-gray-500 text-sm">Select a cell to view its profile</div>;
+  const items = [];
+  if (raw) items.push(["dot", "--points", "bin, on the copy-number scale"], ["line", "--mean", "segment mean"]);
+  if (isAS) items.push(["thick", "--major", "major allele"], ["thick", "--minor", "minor allele"]);
+  else items.push(["thick", "--call", "integer copy number"]);
   return (
-    <div ref={containerRef} className="w-full">
-      <canvas ref={canvasRef} style={{ display: "block" }} />
+    <div ref={containerRef} style={{ width: "100%" }}>
+      {!cellName && <div className="empty">Click a row of the heatmap, or pick a cell on the left.</div>}
+      <canvas ref={canvasRef} style={{ display: cellName ? "block" : "none" }} onMouseMove={move} onMouseLeave={(e) => tip(e, null)} />
+      {cellName && <div className="legend lines">
+        {items.map(([k, c, t]) => <span className="sw" key={t}><i style={{ width: k === "dot" ? 8 : 20, height: k === "thick" ? 4 : k === "dot" ? 8 : 2, borderRadius: k === "dot" ? 4 : 2, background: `var(${c})` }} />{t}</span>)}
+        {isAS && showCi && data.ci?.[cellName] && <span className="sw"><i style={{ width: 20, height: 8, borderRadius: 2, background: "var(--major)", opacity: 0.25 }} />BAF 5–95% interval</span>}
+      </div>}
     </div>
   );
 }));
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   READ DEPTH PLOT (canvas) — per-bin raw read counts.
-   Profile-panel-only companion to ProfilePlot: shares the same ML/MR margins
-   and the same x-axis genome scale so it lines up bin-for-bin with the CN
-   profile plotted directly above it. Never used inside the heatmap panel.
+   READ DEPTH TRACK (canvas) — per-bin read counts on the profile's x scale,
+   so it lines up bin for bin with the copy-number profile drawn above it.
    ═══════════════════════════════════════════════════════════════════════════ */
-const ReadDepthPlot = memo(forwardRef(function ReadDepthPlot({ data, cellName, height = 160, lightMode = false }, ref) {
-  const containerRef = useRef(); const canvasRef = useRef(); const [width, setWidth] = useState(800);
-  useImperativeHandle(ref, () => ({
-    download(basename = "read_depth", format = "png") {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const out = document.createElement("canvas");
-      out.width = canvas.width; out.height = canvas.height;
-      const ctx = out.getContext("2d");
-      ctx.fillStyle = lightMode ? "#ffffff" : "#1c1c1e";
-      ctx.fillRect(0, 0, out.width, out.height);
-      ctx.drawImage(canvas, 0, 0);
-      if (format === "pdf") {
-        const cssW = canvas.offsetWidth, cssH = canvas.offsetHeight;
-        const dataUrl = out.toDataURL("image/png");
-        const pdf = new jsPDF({ orientation: cssW > cssH ? "landscape" : "portrait", unit: "px", format: [cssW, cssH], hotfixes: ["px_scaling"] });
-        pdf.addImage(dataUrl, "PNG", 0, 0, cssW, cssH);
-        pdf.save(basename + ".pdf");
-      } else {
-        const link = document.createElement("a");
-        link.download = basename + ".png";
-        link.href = out.toDataURL("image/png");
-        link.click();
-      }
-    }
-  }), [lightMode]);
-
-  // Same left/right margins as ProfilePlot (ML=48, MR=20) so the two charts'
-  // plot areas — and therefore the genome x-axis — line up pixel-for-pixel.
-  const ML = 48, MT = 16, MR = 20, MB = 36;
-  useEffect(() => {
-    const ro = new ResizeObserver(e => { const w = e[0]?.contentRect.width; if (w > 0) setWidth(Math.round(w)); });
-    if (containerRef.current) ro.observe(containerRef.current);
-    return () => ro.disconnect();
-  }, []);
-
+const ReadDepthPlot = memo(function ReadDepthPlot({ data, cellName, height = 120, zoomX, theme }) {
+  const containerRef = useRef(); const canvasRef = useRef();
+  const width = useWidthOf(containerRef);
   const reads = cellName ? data.reads?.[cellName] : null;
+  const nBins = data.bins.chr.length, genomeMax = data.bins.end_cum[nBins - 1];
+  const [gx0, gx1] = zoomX || [0, genomeMax];
+  const T = 18, B = 6;
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !cellName || !reads) return;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr; canvas.height = height * dpr;
-    canvas.style.width = width + "px"; canvas.style.height = height + "px";
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    const plotW = width - ML - MR, plotH = height - MT - MB;
-    const nBins = data.bins.chr.length, genomeMax = data.bins.end_cum[nBins - 1];
-    const xS = v => ML + (v / genomeMax) * plotW;
-    const validReads = reads.filter(v => v != null);
-    const maxReads = Math.max(1, d3.max(validReads) || 1);
-    const yS = v => MT + plotH - (Math.min(v, maxReads) / maxReads) * plotH;
-
-    const textCol = lightMode ? "#374151" : "#94a3b8";
-    const axisCol = lightMode ? "#9ca3af" : "#374151";
-    const plotBg  = lightMode ? "#eef0f3" : "#161618";
-    const bandTint= lightMode ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.045)";
-    const chrDiv  = lightMode ? "rgba(0,0,0,0.1)" : "rgba(255,255,255,0.1)";
-    const barCol  = "#64D2FF"; // systemTeal — distinct from CN segment colors above
-
-    ctx.fillStyle = lightMode ? "#ffffff" : "transparent";
-    ctx.clearRect(0, 0, width, height);
-    if (lightMode) ctx.fillRect(0, 0, width, height);
-
-    ctx.fillStyle = plotBg;
-    ctx.fillRect(ML, MT, plotW, plotH);
-
-    data.chr_info.forEach(({ start_cum, end_cum }, i) => {
-      if (i % 2 === 1) {
-        ctx.fillStyle = bandTint;
-        ctx.fillRect(xS(start_cum), MT, xS(end_cum) - xS(start_cum), plotH);
-      }
-    });
-    ctx.strokeStyle = chrDiv; ctx.lineWidth = 1;
-    data.chr_info.forEach(({ start_cum }, i) => {
-      if (i === 0) return;
-      const px = Math.round(xS(start_cum)) + 0.5;
-      ctx.beginPath(); ctx.moveTo(px, MT); ctx.lineTo(px, MT + plotH); ctx.stroke();
-    });
-    ctx.strokeRect(Math.round(ML) + 0.5, Math.round(MT) + 0.5, Math.round(plotW) - 1, Math.round(plotH) - 1);
-
-    // Per-bin read-count bars
-    ctx.fillStyle = barCol; ctx.globalAlpha = 0.8;
-    for (let i = 0; i < nBins; i++) {
-      const v = reads[i];
-      if (v == null) continue;
-      const x0 = xS(data.bins.start_cum[i]);
-      const x1 = xS(data.bins.end_cum[i]);
-      const y0 = yS(v);
-      ctx.fillRect(x0, y0, Math.max(0.6, x1 - x0), MT + plotH - y0);
+    if (!canvas || !reads) return;
+    const g = fit(canvas, width, height); g.clearRect(0, 0, width, height);
+    const plotW = width - PR.l - PR.r, plotH = height - T - B;
+    const xS = v => PR.l + ((v - gx0) / (gx1 - gx0)) * plotW;
+    let b0 = 0, b1 = nBins;
+    for (let i = 0; i < nBins; i++) if (data.bins.end_cum[i] >= gx0) { b0 = i; break; }
+    for (let i = nBins - 1; i >= 0; i--) if (data.bins.start_cum[i] <= gx1) { b1 = i + 1; break; }
+    let max = 1, sum = 0, n = 0;
+    for (let i = b0; i < b1; i++) { const v = reads[i]; if (v == null) continue; if (v > max) max = v; sum += v; n++; }
+    const Y = v => T + plotH - (Math.min(v, max) / max) * plotH;
+    g.font = `11px ${FONT}`; g.strokeStyle = css("--grid"); g.lineWidth = 1; g.fillStyle = css("--ink3"); g.textAlign = "right"; g.textBaseline = "middle";
+    for (const t of niceTicks(0, max, 3)) { g.beginPath(); g.moveTo(PR.l, Y(t)); g.lineTo(PR.l + plotW, Y(t)); g.stroke(); g.fillText(t, PR.l - 8, Y(t)); }
+    drawChromosomes(g, data, xS, gx0, gx1, T, plotH, null);
+    g.save(); g.beginPath(); g.rect(PR.l, 0, plotW, height); g.clip();
+    g.fillStyle = css("--series1"); g.globalAlpha = 0.75;
+    for (let i = b0; i < b1; i++) {
+      const v = reads[i]; if (v == null) continue;
+      const x0 = xS(data.bins.start_cum[i]), x1 = xS(data.bins.end_cum[i]), y = Y(v);
+      g.fillRect(x0, y, Math.max(0.6, x1 - x0), T + plotH - y);
     }
-    ctx.globalAlpha = 1;
+    g.globalAlpha = 1;
+    if (n) { g.strokeStyle = css("--ink3"); g.setLineDash([4, 4]); g.beginPath(); g.moveTo(PR.l, Y(sum / n)); g.lineTo(PR.l + plotW, Y(sum / n)); g.stroke(); g.setLineDash([]); }
+    g.restore();
+    g.fillStyle = css("--ink2"); g.textAlign = "left"; g.textBaseline = "alphabetic";
+    g.fillText("Reads per bin", PR.l, 12);
+    if (n) { g.fillStyle = css("--ink3"); g.textAlign = "right"; g.fillText(`dashed: mean ${fmt(sum / n, 1)}`, PR.l + plotW, 12); }
+  }, [data, reads, width, height, gx0, gx1, nBins, theme]);
 
-    // Mean read depth reference line
-    if (validReads.length) {
-      const meanReads = d3.mean(validReads);
-      ctx.strokeStyle = lightMode ? "#9ca3af" : "#4b5563"; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
-      const py = yS(meanReads);
-      ctx.beginPath(); ctx.moveTo(ML, py); ctx.lineTo(ML + plotW, py); ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
-    // Y axis
-    ctx.strokeStyle = axisCol; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(ML, MT); ctx.lineTo(ML, MT + plotH); ctx.stroke();
-    ctx.fillStyle = textCol; ctx.font = "10px system-ui"; ctx.textAlign = "right";
-    d3.ticks(0, maxReads, 4).forEach(t => {
-      const py = yS(t);
-      ctx.beginPath(); ctx.moveTo(ML - 4, py); ctx.lineTo(ML, py); ctx.stroke();
-      ctx.fillText(Math.round(t), ML - 6, py + 3);
-    });
-    ctx.save(); ctx.translate(12, MT + plotH / 2); ctx.rotate(-Math.PI / 2);
-    ctx.textAlign = "center"; ctx.font = "11px system-ui";
-    ctx.fillText("Reads / bin", 0, 0);
-    ctx.restore();
-
-    // Chr labels — matches ProfilePlot so the two tracks read as one figure
-    ctx.fillStyle = textCol; ctx.font = "10px system-ui"; ctx.textAlign = "center";
-    data.chr_info.forEach(({ chr, mid_cum }) => {
-      ctx.fillText(chr.replace("chr", ""), xS(mid_cum), MT + plotH + 22);
-    });
-  }, [data, cellName, reads, width, height, lightMode]);
-
-  if (!cellName) return null;
-  if (!reads) {
-    return (
-      <div className="flex items-center justify-center text-xs text-center px-4" style={{ height: 100, color: lightMode ? "#9ca3af" : "#6b7280" }}>
-        No per-bin read count data in this dataset — re-export from R with the updated ascatsc_to_web.R to include it.
-      </div>
-    );
-  }
-  return (
-    <div ref={containerRef} className="w-full">
-      <canvas ref={canvasRef} style={{ display: "block" }} />
-    </div>
-  );
-}));
+  return <div ref={containerRef} style={{ width: "100%", marginTop: reads ? 10 : 0 }}>{reads && <canvas ref={canvasRef} />}</div>;
+});
 
 /* ═══════════════════════════════════════════════════════════════════════════
    LORENZ CURVE (canvas) — cumulative share of reads vs. cumulative share of
@@ -1308,15 +1066,9 @@ const ReadDepthPlot = memo(forwardRef(function ReadDepthPlot({ data, cellName, h
    The gap between this curve and the diagonal line of equality is exactly
    what the Gini coefficient (annotated on-chart) quantifies.
    ═══════════════════════════════════════════════════════════════════════════ */
-const LorenzCurvePlot = memo(function LorenzCurvePlot({ data, cellName, gini, height = 240, lightMode = false }) {
-  const containerRef = useRef(); const canvasRef = useRef(); const [width, setWidth] = useState(320);
-  const ML = 42, MT = 16, MR = 16, MB = 34;
-  useEffect(() => {
-    const ro = new ResizeObserver(e => { const w = e[0]?.contentRect.width; if (w > 0) setWidth(Math.round(w)); });
-    if (containerRef.current) ro.observe(containerRef.current);
-    return () => ro.disconnect();
-  }, []);
-
+const LorenzCurvePlot = memo(function LorenzCurvePlot({ data, cellName, gini, height = 260, theme }) {
+  const containerRef = useRef(); const canvasRef = useRef();
+  const width = useWidthOf(containerRef, 320);
   const reads = cellName ? data.reads?.[cellName] : null;
 
   const points = useMemo(() => {
@@ -1324,7 +1076,7 @@ const LorenzCurvePlot = memo(function LorenzCurvePlot({ data, cellName, gini, he
     const v = reads.filter(x => x != null && x >= 0).sort((a, b) => a - b);
     const n = v.length;
     if (n === 0) return null;
-    const total = d3.sum(v);
+    const total = v.reduce((a, b) => a + b, 0);
     if (total === 0) return null;
     const pts = [[0, 0]];
     let cum = 0;
@@ -1334,202 +1086,24 @@ const LorenzCurvePlot = memo(function LorenzCurvePlot({ data, cellName, gini, he
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr; canvas.height = height * dpr;
-    canvas.style.width = width + "px"; canvas.style.height = height + "px";
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, width, height);
-    if (lightMode) { ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, width, height); }
-
-    const plotW = width - ML - MR, plotH = height - MT - MB;
-    const xS = v => ML + v * plotW;
-    const yS = v => MT + plotH - v * plotH;
-
-    const textCol = lightMode ? "#374151" : "#94a3b8";
-    const axisCol = lightMode ? "#9ca3af" : "#374151";
-    const plotBg  = lightMode ? "#eef0f3" : "#161618";
-
-    ctx.fillStyle = plotBg; ctx.fillRect(ML, MT, plotW, plotH);
-    ctx.strokeRect(Math.round(ML) + 0.5, Math.round(MT) + 0.5, Math.round(plotW) - 1, Math.round(plotH) - 1);
-
-    // Line of equality
-    ctx.strokeStyle = lightMode ? "#9ca3af" : "#4b5563"; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
-    ctx.beginPath(); ctx.moveTo(xS(0), yS(0)); ctx.lineTo(xS(1), yS(1)); ctx.stroke();
-    ctx.setLineDash([]);
-
-    if (points) {
-      // Shaded gap between equality line and the Lorenz curve — the area the
-      // Gini coefficient measures (as a fraction of the triangle under the diagonal)
-      ctx.fillStyle = "rgba(10,132,255,0.14)";
-      ctx.beginPath();
-      ctx.moveTo(xS(points[0][0]), yS(points[0][0]));
-      for (const [x, y] of points) ctx.lineTo(xS(x), yS(y));
-      for (let i = points.length - 1; i >= 0; i--) ctx.lineTo(xS(points[i][0]), yS(points[i][0]));
-      ctx.closePath(); ctx.fill();
-
-      ctx.strokeStyle = "#0A84FF"; ctx.lineWidth = 2; ctx.lineCap = "round";
-      ctx.beginPath();
-      points.forEach(([x, y], i) => { const px = xS(x), py = yS(y); i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); });
-      ctx.stroke();
-    }
-
-    // Axes
-    ctx.strokeStyle = axisCol; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(ML, MT); ctx.lineTo(ML, MT + plotH); ctx.lineTo(ML + plotW, MT + plotH); ctx.stroke();
-    ctx.fillStyle = textCol; ctx.font = "10px system-ui";
-    [0, 0.25, 0.5, 0.75, 1].forEach(t => {
-      const px = xS(t), py = yS(t);
-      ctx.textAlign = "center"; ctx.beginPath(); ctx.moveTo(px, MT + plotH); ctx.lineTo(px, MT + plotH + 4); ctx.stroke();
-      ctx.fillText(`${Math.round(t * 100)}%`, px, MT + plotH + 14);
-      ctx.textAlign = "right"; ctx.beginPath(); ctx.moveTo(ML - 4, py); ctx.lineTo(ML, py); ctx.stroke();
-      ctx.fillText(`${Math.round(t * 100)}%`, ML - 6, py + 3);
-    });
-
-    ctx.fillStyle = textCol; ctx.font = "11px system-ui"; ctx.textAlign = "center";
-    ctx.fillText("Cumulative % of bins", ML + plotW / 2, MT + plotH + 28);
-    ctx.save(); ctx.translate(12, MT + plotH / 2); ctx.rotate(-Math.PI / 2);
-    ctx.fillText("Cumulative % of reads", 0, 0);
-    ctx.restore();
-
-    if (gini != null) {
-      ctx.fillStyle = "#0A84FF"; ctx.font = "bold 11px system-ui"; ctx.textAlign = "left";
-      ctx.fillText(`Gini = ${gini.toFixed(3)}`, ML + 6, MT + 14);
-    }
-  }, [points, width, height, lightMode, gini]);
-
-  if (!cellName) return null;
-  if (!points) {
-    return (
-      <div className="flex items-center justify-center text-xs text-center px-4" style={{ height: 100, color: lightMode ? "#9ca3af" : "#6b7280" }}>
-        No per-bin read count data in this dataset — re-export from R with the updated ascatsc_to_web.R to include it.
-      </div>
-    );
-  }
-  return (
-    <div ref={containerRef} className="w-full">
-      <canvas ref={canvasRef} style={{ display: "block" }} />
-    </div>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   QUALITY SCATTER (D3/SVG)
-   ═══════════════════════════════════════════════════════════════════════════ */
-const QualityScatter = memo(function QualityScatter({ data, thresholds, selectedCell, onCellClick, height = 320, lightMode = false }) {
-  const containerRef = useRef(); const canvasRef = useRef(); const [width, setWidth] = useState(500);
-  const ML = 56, MT = 16, MR = 20, MB = 44;
-  useEffect(() => {
-    const ro = new ResizeObserver(e => { const w = e[0]?.contentRect.width; if (w > 0) setWidth(Math.round(w)); });
-    if (containerRef.current) ro.observe(containerRef.current);
-    return () => ro.disconnect();
-  }, []);
-
-  // Store cell positions for click detection
-  const cellPositionsRef = useRef([]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current; if (!canvas) return;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr; canvas.height = height * dpr;
-    canvas.style.width = width + "px"; canvas.style.height = height + "px";
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    const plotW = width - ML - MR, plotH = height - MT - MB;
-    const cells = Object.keys(data.quality);
-    const vals = cells.map(c => data.quality[c]).filter(Boolean);
-    const xMax = d3.max(vals, d => d.mapd) * 1.1 || 1;
-    const yMax = d3.max(vals, d => d.median_residual) * 1.1 || 1;
-    const xS = v => ML + (v / xMax) * plotW;
-    const yS = v => MT + plotH - (v / yMax) * plotH;
-
-    const textCol = lightMode ? "#374151" : "#94a3b8";
-    const axisCol = lightMode ? "#9ca3af" : "#374151";
-
-    ctx.clearRect(0, 0, width, height);
-    if (lightMode) { ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, width, height); }
-
-    // Pass zone
-    ctx.fillStyle = "rgba(52,199,89,0.06)";
-    ctx.fillRect(ML, yS(thresholds.residual), xS(thresholds.mapd) - ML, plotH - (yS(thresholds.residual) - MT));
-
-    // Threshold lines
-    ctx.strokeStyle = "rgba(255,59,48,0.7)"; ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
-    ctx.beginPath(); ctx.moveTo(xS(thresholds.mapd), MT); ctx.lineTo(xS(thresholds.mapd), MT + plotH); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(ML, yS(thresholds.residual)); ctx.lineTo(ML + plotW, yS(thresholds.residual)); ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Circles — batch by color
-    const positions = [];
-    const groups = { pass: [], fail: [], sel: [] };
-    cells.forEach(c => {
-      const q = data.quality[c]; if (!q || q.mapd == null || q.median_residual == null) return;
-      const pB = thresholds.bins_with_cna == null || q.bins_with_cna == null || q.bins_with_cna <= thresholds.bins_with_cna;
-      const pass = q.mapd <= thresholds.mapd && q.median_residual <= thresholds.residual && pB;
-      const sel = c === selectedCell;
-      const cx = xS(q.mapd), cy = yS(q.median_residual);
-      positions.push({ c, cx, cy });
-      (sel ? groups.sel : pass ? groups.pass : groups.fail).push({ cx, cy, c });
-    });
-    cellPositionsRef.current = positions;
-
-    const drawGroup = (items, color, r, alpha, stroke) => {
-      ctx.globalAlpha = alpha; ctx.fillStyle = color;
-      ctx.beginPath();
-      for (const { cx, cy } of items) { ctx.moveTo(cx + r, cy); ctx.arc(cx, cy, r, 0, 6.2832); }
-      ctx.fill();
-      if (stroke) {
-        ctx.globalAlpha = 1; ctx.strokeStyle = stroke; ctx.lineWidth = 2;
-        ctx.beginPath();
-        for (const { cx, cy } of items) { ctx.moveTo(cx + r, cy); ctx.arc(cx, cy, r, 0, 6.2832); }
-        ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
-    };
-    drawGroup(groups.fail, "#FF3B30", 2.5, 0.5, null);
-    drawGroup(groups.pass, "#0A84FF", 2.5, 0.5, null);
-    drawGroup(groups.sel,  "#FF9500", 5,   1,   "#ffffff");
-
-    // Axes
-    ctx.strokeStyle = axisCol; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(ML, MT); ctx.lineTo(ML, MT + plotH); ctx.lineTo(ML + plotW, MT + plotH); ctx.stroke();
-    ctx.fillStyle = textCol; ctx.font = "10px system-ui";
-    // X ticks
-    ctx.textAlign = "center";
-    const xTicks = d3.ticks(0, xMax, 6);
-    xTicks.forEach(t => {
-      const px = xS(t);
-      ctx.beginPath(); ctx.moveTo(px, MT + plotH); ctx.lineTo(px, MT + plotH + 4); ctx.stroke();
-      ctx.fillText(t.toFixed(2), px, MT + plotH + 14);
-    });
-    // Y ticks
-    ctx.textAlign = "right";
-    const yTicks = d3.ticks(0, yMax, 6);
-    yTicks.forEach(t => {
-      const py = yS(t);
-      ctx.beginPath(); ctx.moveTo(ML - 4, py); ctx.lineTo(ML, py); ctx.stroke();
-      ctx.fillText(t.toFixed(2), ML - 6, py + 3);
-    });
-    // Axis labels
-    ctx.fillStyle = textCol; ctx.font = "11px system-ui"; ctx.textAlign = "center";
-    ctx.fillText("MAPD", ML + plotW / 2, MT + plotH + 34);
-    ctx.save(); ctx.translate(12, MT + plotH / 2); ctx.rotate(-Math.PI / 2);
-    ctx.fillText("Median Residual", 0, 0); ctx.restore();
-  }, [data, thresholds, selectedCell, width, height, lightMode]);
-
-  const handleClick = useCallback(e => {
-    const rect = canvasRef.current.getBoundingClientRect();
-    const px = e.clientX - rect.left, py = e.clientY - rect.top;
-    for (const { c, cx, cy } of cellPositionsRef.current) {
-      if (Math.hypot(px - cx, py - cy) <= 6) { onCellClick(c); return; }
-    }
-  }, [onCellClick]);
+    if (!canvas || !points) return;
+    const g = fit(canvas, width, height); g.clearRect(0, 0, width, height);
+    const box = { l: 52, t: 14, w: width - 66, h: height - 58 };
+    const ticks = [0, 0.25, 0.5, 0.75, 1], pct = v => Math.round(v * 100) + "%";
+    const { tx, ty } = axes(g, box, ticks, ticks, { x0: 0, x1: 1, y0: 0, y1: 1, xlab: "share of bins, fewest reads first", ylab: "share of reads", xfmt: pct, yfmt: pct });
+    g.strokeStyle = css("--ink3"); g.setLineDash([4, 4]); g.beginPath(); g.moveTo(tx(0), ty(0)); g.lineTo(tx(1), ty(1)); g.stroke(); g.setLineDash([]);
+    g.fillStyle = css("--accent-soft"); g.beginPath(); g.moveTo(tx(0), ty(0));
+    for (const [x, y] of points) g.lineTo(tx(x), ty(y));
+    g.lineTo(tx(1), ty(1)); g.closePath(); g.fill();
+    g.strokeStyle = css("--accent"); g.lineWidth = 2; g.lineJoin = "round"; g.beginPath();
+    points.forEach(([x, y], i) => (i ? g.lineTo(tx(x), ty(y)) : g.moveTo(tx(x), ty(y))));
+    g.stroke();
+    if (gini != null) { g.fillStyle = css("--ink"); g.font = `600 12px ${FONT}`; g.textAlign = "left"; g.textBaseline = "top"; g.fillText(`Gini ${gini.toFixed(3)}`, box.l + 10, box.t + 6); }
+  }, [points, width, height, gini, theme]);
 
   return (
-    <div ref={containerRef} className="w-full">
-      <canvas ref={canvasRef} style={{ display: "block", cursor: "pointer" }} onClick={handleClick} />
+    <div ref={containerRef} style={{ width: "100%" }}>
+      {points ? <canvas ref={canvasRef} /> : <div className="empty">No per-bin read counts in this export — re-export with the current ascatsc_to_web.R to include them.</div>}
     </div>
   );
 });
@@ -1537,67 +1111,15 @@ const QualityScatter = memo(function QualityScatter({ data, thresholds, selected
 /* ═══════════════════════════════════════════════════════════════════════════
    SMALL UI COMPONENTS
    ═══════════════════════════════════════════════════════════════════════════ */
-const CellMetrics = memo(function CellMetrics({ data, cellName, thresholds, lightMode, effectiveQuality }) {
-  if (!cellName || !data.quality[cellName]) return null;
-  const q = (effectiveQuality ?? data.quality)[cellName];
-  const nBins = data.bins?.chr?.length ?? 0;
-  const pR = q.median_residual <= thresholds.residual;
-  const pM = q.mapd <= thresholds.mapd;
-  const pC = thresholds.coverage == null || q.coverage == null || q.coverage >= thresholds.coverage;
-  const pB = thresholds.bins_with_cna == null || q.bins_with_cna == null || q.bins_with_cna <= thresholds.bins_with_cna;
-  const pG = thresholds.gini == null || q.gini == null || q.gini <= thresholds.gini;
-  const boxBg = lightMode ? "#f5f5f7" : "#1c1c1e";
-  const labelCol = lightMode ? "rgba(60,60,67,0.6)" : "rgba(235,235,245,0.55)";
-  const valueCol = lightMode ? "#1d1d1f" : "#f5f5f7";
-  const passCol = "#34C759", failCol = "#FF3B30";
-  const MetricBox = ({ label, val, pass, thresh, fmt = v => v?.toFixed(3) ?? "—", suffix = "" }) => (
-    <div className="rounded-2xl p-3" style={{ background: boxBg }}>
-      <div className="text-xs mb-1" style={{ color: labelCol }}>{label}</div>
-      <div className="text-lg font-semibold font-mono" style={{ color: valueCol }}>{fmt(val)}{suffix}</div>
-      <div className="text-xs mt-1.5 flex items-center gap-1.5" style={{ color: pass ? passCol : failCol }}>
-        <span style={{ width: 5, height: 5, borderRadius: "50%", background: pass ? passCol : failCol, flexShrink: 0 }} />
-        {pass ? "Pass" : "Fail"} ({thresh != null ? `≤ ${thresh.toFixed ? thresh.toFixed(2) : thresh}` : "—"})
-      </div>
-    </div>
-  );
-  return (
-    <div className="grid grid-cols-2 gap-3 text-sm">
-      <MetricBox label="Median Residual" val={q.median_residual} pass={pR} thresh={thresholds.residual} />
-      <MetricBox label="MAPD" val={q.mapd} pass={pM} thresh={thresholds.mapd} />
-      {q.coverage != null && (
-        <MetricBox label="Coverage" val={q.coverage} pass={pC}
-          thresh={thresholds.coverage} fmt={v => v != null ? Math.round(v).toString() : "—"} suffix="×" />
-      )}
-      {q.bins_with_cna != null && (
-        <MetricBox label="Bins w/ CNA" val={q.bins_with_cna} pass={pB}
-          thresh={thresholds.bins_with_cna}
-          fmt={v => v != null ? `${v}${nBins ? ` / ${nBins}` : ""}` : "—"} />
-      )}
-      {q.gini != null && (
-        <MetricBox label="Gini Coefficient" val={q.gini} pass={pG} thresh={thresholds.gini} />
-      )}
-    </div>
-  );
-});
+function ThemeIcon() {
+  return <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="8" r="6" /><path d="M8 2a6 6 0 0 0 0 12z" fill="currentColor" /></svg>;
+}
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   THEME TOGGLE BUTTON
-   ═══════════════════════════════════════════════════════════════════════════ */
-const ThemeToggle = memo(function ThemeToggle({ lightMode, onToggle }) {
-  return (
-    <button onClick={onToggle}
-      title={lightMode ? "Switch to dark mode" : "Switch to light mode"}
-      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full transition-colors"
-      style={{ background: lightMode ? "#e8e8ed" : "#3a3a3c", color: lightMode ? "rgba(60,60,67,0.78)" : "rgba(235,235,245,0.7)" }}>
-      {lightMode
-        ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-        : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>}
-      {lightMode ? "Light" : "Dark"}
-    </button>
-  );
-});
+function Switch({ on, onChange, label }) {
+  return <button className="switch" role="switch" aria-checked={on} aria-label={label} onClick={() => onChange(!on)} />;
+}
 
-function DownloadMenu({ onDownload, style, lightMode = false }) {
+function DownloadMenu({ onSave }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef();
   useEffect(() => {
@@ -1606,75 +1128,85 @@ function DownloadMenu({ onDownload, style, lightMode = false }) {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
-  // Floating menu — glass material, matching the rest of the chrome layer
-  const glassMenu = {
-    background: lightMode ? "rgba(255,255,255,0.75)" : "rgba(44,44,46,0.7)",
-    backdropFilter: "blur(24px) saturate(180%)",
-    WebkitBackdropFilter: "blur(24px) saturate(180%)",
-    border: lightMode ? "1px solid rgba(0,0,0,0.06)" : "1px solid rgba(255,255,255,0.1)",
-    boxShadow: lightMode
-      ? "inset 0 1px 0 rgba(255,255,255,0.8), 0 8px 24px rgba(0,0,0,0.12)"
-      : "inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 24px rgba(0,0,0,0.45)",
-  };
   return (
-    <div ref={menuRef} className="relative">
-      <button onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-full transition-colors"
-        style={style}>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-        Download
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
+    <div className="menu" ref={menuRef}>
+      <button className="iconbtn" onClick={() => setOpen(o => !o)} title="Save the figure" aria-haspopup="menu" aria-expanded={open}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>Save
       </button>
-      {open && (
-        <div className="absolute right-0 mt-1.5 rounded-2xl shadow-lg z-50 overflow-hidden" style={{ ...glassMenu, minWidth: "90px" }}>
-          {["PNG", "PDF"].map(fmt => (
-            <button key={fmt} onClick={() => { onDownload(fmt.toLowerCase()); setOpen(false); }}
-              className="w-full text-left text-xs px-3 py-2 hover:bg-[#0A84FF]/15 transition-colors"
-              style={{ color: style.color }}>
-              {fmt}
-            </button>
-          ))}
-        </div>
-      )}
+      {open && <div className="pop" role="menu">{["PNG", "PDF"].map(f => <button key={f} role="menuitem" onClick={() => { onSave(f.toLowerCase()); setOpen(false); }}>{f}</button>)}</div>}
     </div>
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   MOBILE DETECTION HOOK
-   ═══════════════════════════════════════════════════════════════════════════ */
-function useIsMobile() {
-  const [mobile, setMobile] = useState(() => window.innerWidth < 768);
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)");
-    const handler = e => setMobile(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
-  return mobile;
+/** A slider whose far end means "off": cells beyond the value are flagged. */
+function ThresholdSlider({ t, value, range, count, passOnly, onChange }) {
+  const [lo, hi] = range, span = hi - lo || 1;
+  const off = value == null;
+  const pos = off ? (t.dir === "max" ? 1 : 0) : Math.max(0, Math.min(1, (value - lo) / span));
+  return (
+    <div className="slider">
+      <div className="top"><span>{t.label}</span><span>{off ? "off" : t.f(value)}</span></div>
+      <input type="range" min="0" max="1" step="0.001" value={pos} aria-label={t.label} style={{ "--p": (pos * 100).toFixed(1) + "%" }}
+        onChange={(e) => {
+          const p = +e.target.value, isOff = t.dir === "max" ? p >= 0.999 : p <= 0.001, v = lo + p * span;
+          onChange(isOff ? null : t.int ? Math.round(v) : v);
+        }} />
+      <small className={"hint" + (count ? " on" : "")}>{count ? `${count.toLocaleString()} cell${count > 1 ? "s" : ""} ${passOnly ? "hidden" : "flagged"} by this threshold` : t.hint}</small>
+    </div>
+  );
+}
+
+const TAB_ICONS = {
+  cn: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M1.5 9.5h3v-4h3v6h3v-8h2.5" /><path d="M1.5 14h13" opacity=".45" /></svg>,
+  qc: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="4" cy="11" r="1.3" /><circle cx="7.5" cy="6.5" r="1.3" /><circle cx="11" cy="9" r="1.3" /><circle cx="13" cy="4" r="1.3" /><path d="M1.5 14.5h13M1.5 1.5v13" opacity=".45" /></svg>,
+  data: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2.5" y="1.5" width="11" height="13" rx="2" /><path d="M5.5 5.5h5M5.5 8.5h5M5.5 11.5h3" /></svg>,
+};
+
+// Sidebar QC thresholds: a cell beyond any active one is flagged
+const THRESH = [
+  { key: "residual", metric: "median_residual", label: "Max median residual", dir: "max", reason: "high residual", tile: "High residual", hint: "distance of the bins from the integer fit", f: v => v.toFixed(2) },
+  { key: "mapd", metric: "mapd", label: "Max MAPD", dir: "max", reason: "noisy", tile: "Noisy", hint: "noise of the cell's logR", f: v => v.toFixed(3) },
+  { key: "coverage", metric: "coverage", label: "Min coverage", dir: "min", reason: "low coverage", tile: "Low coverage", hint: "ASCAT.sc's coverage of the cell", f: v => Math.round(v) + "×", int: true },
+  { key: "bins_with_cna", metric: "bins_with_cna", label: "Max bins with CNA", dir: "max", reason: "many CNA bins", tile: "Many CNA bins", hint: "bins whose copy number is not 2", f: v => String(Math.round(v)), int: true },
+  { key: "gini", metric: "gini", label: "Max Gini", dir: "max", reason: "uneven coverage", tile: "Uneven coverage", hint: "unevenness of the reads across bins", f: v => v.toFixed(3) },
+];
+
+function setFavicon(theme) {
+  const el = document.getElementById("favicon");
+  if (el) el.href = theme === "dark" ? LOGO_DARK : LOGO_LIGHT;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    MAIN APP
    ═══════════════════════════════════════════════════════════════════════════ */
 export default function App() {
-  const isMobile = useIsMobile();
   const [data, setData] = useState(null);
+  const [fileName, setFileName] = useState("");
+  const [theme, setThemeState] = useState(() => document.documentElement.dataset.theme || "light");
   const [selectedCell, setSelectedCell] = useState(null);
-  const [tab, setTab] = useState("heatmap");
+  const [tab, setTab] = useState("cn");
   const heatmapPanelRef = useRef();
   const profilePlotRef = useRef();
+  const searchRef = useRef();
   const [search, setSearch] = useState("");
-  const [thresholds, setThresholds] = useState({ residual: 1.5, mapd: 2.0, coverage: null, bins_with_cna: null, gini: null });
+  const [thresholds, setThresholds] = useState({ residual: null, mapd: null, coverage: null, bins_with_cna: null, gini: null });
+  const [passOnly, setPassOnly] = useState(true);
   const [minSegmentMb, setMinSegmentMb] = useState(0);
-  const [heatmapH, setHeatmapH] = useState(650);
+  const [heatmapH, setHeatmapH] = useState(560);
   const [alleleMode, setAlleleMode] = useState(false);
   const [showCi, setShowCi] = useState(true);
   const [zoom, setZoom] = useState(null);
   const [showDendro, setShowDendro] = useState(true);
-  const [lightMode, setLightMode] = useState(false);
   const [cellTypeFilter, setCellTypeFilter] = useState("All");
-  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [panel, setPanel] = useState(true);
+
+  const setTheme = useCallback((t) => {
+    document.documentElement.dataset.theme = t;
+    try { localStorage.setItem("ascatsc-theme", t); } catch (e) { /* private mode */ }
+    setFavicon(t); setThemeState(t);
+  }, []);
+  const toggleTheme = useCallback(() => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"), [setTheme]);
+  useEffect(() => { setFavicon(theme); }, [theme]);
 
   const hasAS = !!(data?.nMajor && Object.keys(data.nMajor).length > 0);
   const hasCi = !!(data?.ci && Object.keys(data.ci).length > 0);
@@ -1683,29 +1215,12 @@ export default function App() {
     (data?.dendrogram_as && Array.isArray(data.dendrogram_as.merge) && Array.isArray(data.dendrogram_as.height) && data.dendrogram_as.merge.length > 0 && data.dendrogram_as.height.length === data.dendrogram_as.merge.length)
   );
   const hasCellTypes = !!(data?.cell_types && Object.keys(data.cell_types).length > 0);
-  const hasCoverage = !!(data && Object.values(data.quality).some(q => q?.coverage != null));
-  const hasBinsWithCna = !!(data && Object.values(data.quality).some(q => q?.bins_with_cna != null));
-  const hasGini = !!(data && Object.values(data.quality).some(q => q?.gini != null));
 
-  // All unique cell type labels in clustering order
+  // All unique cell type labels
   const cellTypeOptions = useMemo(() => {
     if (!hasCellTypes) return [];
-    const seen = new Set();
-    const order = data.clustering_order || Object.keys(data.profiles);
-    const types = [];
-    for (const c of order) {
-      const ct = data.cell_types[c];
-      if (ct && !seen.has(ct)) { seen.add(ct); types.push(ct); }
-    }
-    return types.sort();
+    return [...new Set(Object.values(data.cell_types))].filter(Boolean).sort();
   }, [data, hasCellTypes]);
-
-  // Coverage stats for slider range
-  const coverageStats = useMemo(() => {
-    if (!hasCoverage) return null;
-    const vals = Object.values(data.quality).map(q => q?.coverage).filter(v => v != null);
-    return { min: Math.floor(d3.min(vals)), max: Math.ceil(d3.max(vals)) };
-  }, [data, hasCoverage]);
 
   const nBins = data?.bins?.chr?.length ?? 0;
 
@@ -1746,39 +1261,63 @@ export default function App() {
     };
   }, [data, deferredMinSegmentBins]);
 
+  // getQCs()-style metrics, computed once per dataset
+  const qcm = useMemo(() => (data ? computeQCMetrics(data) : {}), [data]);
+  const cells = useMemo(() => (data ? Object.keys(data.profiles) : []), [data]);
+  const cellIndex = useMemo(() => new Map(cells.map((c, i) => [c, i])), [cells]);
+  // every metric as an array aligned with `cells`; exported values win over computed ones
+  const vals = useMemo(() => {
+    const out = {};
+    for (const [k] of METRIC_META) {
+      const arr = cells.map(c => num(effectiveQuality[c]?.[k] ?? qcm[c]?.[k]));
+      if (arr.some(v => !isNaN(v))) out[k] = arr;
+    }
+    return out;
+  }, [cells, effectiveQuality, qcm]);
+  const metAll = useMemo(() => metricSummaries(vals), [vals]);
+  const ranges = useMemo(() => {
+    const out = {};
+    for (const t of THRESH) {
+      const v = (vals[t.metric] || []).filter(x => !isNaN(x));
+      if (v.length && Math.min(...v) < Math.max(...v)) out[t.key] = [Math.min(...v), Math.max(...v)];
+    }
+    return out;
+  }, [vals]);
+
+  // Default thresholds for a new dataset: median + 2 MAD for the residual and
+  // MAPD, the 10th percentile of coverage, the 90th of CNA bins and Gini.
   useEffect(() => {
     if (!data) return;
-    const vals = Object.values(data.quality).filter(Boolean);
-    const medR = d3.median(vals.map(v => v.median_residual)) || 0;
-    const madR = d3.median(vals.map(v => Math.abs(v.median_residual - medR))) * 1.4826 || 0.5;
-    const medM = d3.median(vals.map(v => v.mapd)) || 0;
-    const madM = d3.median(vals.map(v => Math.abs(v.mapd - medM))) * 1.4826 || 0.5;
-    // Default coverage threshold: bottom 10th percentile (keep high-coverage cells)
-    let covThresh = null;
-    if (hasCoverage) {
-      const covVals = vals.map(v => v.coverage).filter(v => v != null).sort((a, b) => a - b);
-      covThresh = Math.floor(d3.quantile(covVals, 0.10));
-    }
-    let cnaThresh = null;
-    if (hasBinsWithCna) {
-      const cnaVals = vals.map(v => v.bins_with_cna).filter(v => v != null).sort((a, b) => a - b);
-      if (cnaVals.length) cnaThresh = Math.ceil(d3.quantile(cnaVals, 0.90));
-    }
-    // Default Gini threshold: top 10th percentile (flag the most unevenly-covered cells)
-    let giniThresh = null;
-    if (hasGini) {
-      const giniVals = vals.map(v => v.gini).filter(v => v != null).sort((a, b) => a - b);
-      if (giniVals.length) giniThresh = Math.round(d3.quantile(giniVals, 0.90) * 1000) / 1000;
-    }
+    const all = Object.keys(data.profiles);
+    const col = k => all.map(c => num(data.quality?.[c]?.[k] ?? qcm[c]?.[k])).filter(v => !isNaN(v)).sort((a, b) => a - b);
+    const robust = k => { const v = col(k); if (!v.length) return null; const m = quantile(v, 0.5); const mad = 1.4826 * quantile(v.map(x => Math.abs(x - m)).sort((a, b) => a - b), 0.5); return mad > 0 ? Math.round((m + 2 * mad) * 1000) / 1000 : null; };
+    const q = (k, p, f) => { const v = col(k); return v.length > 1 && v[0] < v[v.length - 1] ? f(quantile(v, p)) : null; };
     setThresholds({
-      residual: Math.round((medR + 2 * madR) * 100) / 100,
-      mapd: Math.round((medM + 2 * madM) * 100) / 100,
-      coverage: covThresh,
-      bins_with_cna: cnaThresh,
-      gini: giniThresh,
+      residual: robust("median_residual"),
+      mapd: robust("mapd"),
+      coverage: q("coverage", 0.1, Math.floor),
+      bins_with_cna: q("bins_with_cna", 0.9, Math.ceil),
+      gini: q("gini", 0.9, v => Math.round(v * 1000) / 1000),
     });
-    setAlleleMode(false); setZoom(null); setShowDendro(true); setCellTypeFilter("All"); setMinSegmentMb(0);
-  }, [data, hasCoverage, hasBinsWithCna, hasGini]);
+    setAlleleMode(false); setZoom(null); setShowDendro(true); setCellTypeFilter("All"); setMinSegmentMb(0); setPassOnly(true); setSearch("");
+    const first = data.clustering_order?.[0] ?? all[0];
+    setSelectedCell(first ?? null);
+  }, [data, qcm]);
+
+  // QC flags of every cell under the current thresholds
+  const { passing, reasons, failCounts } = useMemo(() => {
+    const p = new Array(cells.length).fill(true), r = new Array(cells.length).fill(""), counts = {};
+    for (const t of THRESH) {
+      const th = thresholds[t.key], v = vals[t.metric]; counts[t.key] = 0;
+      if (th == null || !v || !ranges[t.key]) continue;
+      for (let i = 0; i < cells.length; i++) {
+        if (isNaN(v[i]) || !(t.dir === "max" ? v[i] > th : v[i] < th)) continue;
+        p[i] = false; r[i] = r[i] ? r[i] + ", " + t.reason : t.reason; counts[t.key]++;
+      }
+    }
+    return { passing: p, reasons: r, failCounts: counts };
+  }, [cells, vals, thresholds, ranges]);
+  const nPass = passing.filter(Boolean).length;
 
   const filteredCells = useMemo(() => {
     if (!data) return [];
@@ -1788,22 +1327,19 @@ export default function App() {
       ? data.clustering_order_as
       : (data.clustering_order || Object.keys(data.profiles));
     return baseOrder.filter(c => {
-      const q = effectiveQuality[c]; if (!q) return true;
-      if (q.median_residual != null && q.median_residual > thresholds.residual) return false;
-      if (q.mapd != null && q.mapd > thresholds.mapd) return false;
-      if (thresholds.coverage != null && q.coverage != null && q.coverage < thresholds.coverage) return false;
-      if (thresholds.bins_with_cna != null && q.bins_with_cna != null && q.bins_with_cna > thresholds.bins_with_cna) return false;
-      if (thresholds.gini != null && q.gini != null && q.gini > thresholds.gini) return false;
+      const i = cellIndex.get(c);
+      if (passOnly && i != null && !passing[i]) return false;
       if (cellTypeFilter !== "All" && data.cell_types?.[c] !== cellTypeFilter) return false;
-      if (search && !c.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });
-  }, [data, alleleMode, thresholds, search, cellTypeFilter, effectiveQuality]);
+  }, [data, alleleMode, passOnly, passing, cellIndex, cellTypeFilter]);
+  const shownSet = useMemo(() => new Set(filteredCells), [filteredCells]);
+  const listCells = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q ? filteredCells.filter(c => c.toLowerCase().includes(q)) : filteredCells;
+  }, [filteredCells, search]);
 
   useEffect(() => { setZoom(null); }, [filteredCells.length]);
-
-  const totalCells = data ? ((alleleMode && data.clustering_order_as) ? data.clustering_order_as : (data.clustering_order || Object.keys(data.profiles))).length : 0;
-  const passRate = totalCells > 0 ? Math.round((filteredCells.length / totalCells) * 100) : 0;
 
   const navigateCell = useCallback(dir => {
     if (!filteredCells.length) return;
@@ -1813,613 +1349,231 @@ export default function App() {
 
   useEffect(() => {
     const h = e => {
-      if (e.target.tagName === "INPUT") return;
+      if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") { if (e.key === "Escape") e.target.blur(); return; }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "ArrowUp"   || e.key === "k") { e.preventDefault(); navigateCell(-1); }
-      if (e.key === "ArrowDown" || e.key === "j") { e.preventDefault(); navigateCell(1); }
-      if (e.key === "Escape") setZoom(null);
+      else if (e.key === "ArrowDown" || e.key === "j") { e.preventDefault(); navigateCell(1); }
+      else if (e.key === "Escape") setZoom(null);
+      else if (e.key === "/" && data) { e.preventDefault(); setPanel(true); setTimeout(() => searchRef.current?.focus(), 0); }
+      else if (e.key === "t") toggleTheme();
     };
     window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h);
-  }, [navigateCell]);
+  }, [navigateCell, toggleTheme, data]);
 
-  if (!data) return <UploadScreen onLoad={setData} />;
+  useEffect(() => {
+    document.querySelector(".cell.on")?.scrollIntoView({ block: "nearest" });
+  }, [selectedCell]);
 
-  const TABS = [{ id: "heatmap", label: "Heatmap" }, { id: "profile", label: "Profile" }, { id: "quality", label: "QC" }];
+  const loadData = useCallback((d, name) => { setData(d); setFileName(name); setTab("cn"); }, []);
+  if (!data) return <UploadScreen onLoad={loadData} onToggleTheme={toggleTheme} />;
+
+  const totalCells = cells.length;
+  const selIdx = selectedCell != null ? cellIndex.get(selectedCell) : undefined;
+  const metricOf = key => metAll.find(m => m.key === key);
+  const valOf = key => (selIdx != null && vals[key] ? vals[key][selIdx] : NaN);
+  const failsThreshold = metric => THRESH.some(t => t.metric === metric && thresholds[t.key] != null && ranges[t.key] && !isNaN(valOf(metric)) && (t.dir === "max" ? valOf(metric) > thresholds[t.key] : valOf(metric) < thresholds[t.key]));
+  const activeThresholds = Object.fromEntries(THRESH.filter(t => thresholds[t.key] != null && ranges[t.key]).map(t => [t.metric, thresholds[t.key]]));
   const isZoomed = zoom !== null;
-
-  // Theme-aware style helpers — Apple system-color palette
-  const bg     = lightMode ? "#f5f5f7" : "#1c1c1e";
-  const bg2    = lightMode ? "#ffffff" : "#242426";
-  const bgCard = lightMode ? "#ffffff" : "#242426";
-  const bgItem = lightMode ? "#e8e8ed" : "#3a3a3c";
-  const border = lightMode ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.08)";
-  const text   = lightMode ? "#1d1d1f" : "#f5f5f7";
-  const textMd = lightMode ? "rgba(60,60,67,0.78)" : "rgba(235,235,245,0.78)";
-  const textSm = lightMode ? "rgba(60,60,67,0.6)"  : "rgba(235,235,245,0.55)";
-  const textXs = lightMode ? "rgba(60,60,67,0.4)"  : "rgba(235,235,245,0.35)";
-  const accent2 = "#FF9500";  // systemOrange — selection / allele-specific emphasis
-
-  // Liquid-glass material — reserved for the navigation/chrome layer (toolbar,
-  // sidebar, floating menus, sheets). Content surfaces (heatmap, plots, cards)
-  // stay flat and opaque so data stays legible.
-  const glass = {
-    background: lightMode ? "rgba(255,255,255,0.68)" : "rgba(28,28,30,0.62)",
-    backdropFilter: "blur(24px) saturate(180%)",
-    WebkitBackdropFilter: "blur(24px) saturate(180%)",
-    boxShadow: lightMode
-      ? "inset 0 1px 0 rgba(255,255,255,0.8), inset 0 0 0 1px rgba(255,255,255,0.4), 0 4px 24px rgba(0,0,0,0.06)"
-      : "inset 0 1px 0 rgba(255,255,255,0.08), inset 0 0 0 1px rgba(255,255,255,0.06), 0 4px 24px rgba(0,0,0,0.4)",
+  const zoomLabel = () => {
+    if (!zoom?.x) return "";
+    const a = binAt(data.bins, zoom.x[0]), b = binAt(data.bins, zoom.x[1]);
+    return `${chrLabel(data.bins.chr[a])}:${fmtBp(data.bins.start[a])} – ${chrLabel(data.bins.chr[b])}:${fmtBp(data.bins.end[b])}`;
   };
-  const glassBorder = lightMode ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)";
+  const reset = () => { setData(null); setSelectedCell(null); setZoom(null); };
 
-  /* ── MOBILE LAYOUT ─────────────────────────────────────────────────────── */
-  if (isMobile) {
-    return (
-      <div style={{ minHeight: "100dvh", background: bg, color: text, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif", display: "flex", flexDirection: "column" }}>
-
-        {/* Mobile header — glass toolbar, sticky over scrolling content */}
-        <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: `1px solid ${glassBorder}`, ...glass, position: "sticky", top: 0, zIndex: 30 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <img src={process.env.PUBLIC_URL + "/ASCATsc_logo.svg"} alt="ASCAT.sc logo" style={{ width: 26, height: 26, borderRadius: 6 }} />
-            <span style={{ fontWeight: 600, fontSize: 14, letterSpacing: "-0.01em", color: text }}>ASCAT.sc</span>
-            <span style={{ fontSize: 11, padding: "1px 7px", borderRadius: 999, background: bgItem, color: textSm }}>
-              {totalCells} cells
-            </span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <ThemeToggle lightMode={lightMode} onToggle={() => setLightMode(v => !v)} />
-            <button onClick={() => setSidebarVisible(v => !v)}
-              title="Settings"
-              style={{ background: bgItem, border: "none", borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: textSm, display: "flex", alignItems: "center", gap: 4 }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
-              </svg>
-            </button>
-          </div>
-        </header>
-
-        {/* Settings drawer overlay */}
-        {sidebarVisible && (
-          <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", flexDirection: "column" }}>
-            <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)" }} onClick={() => setSidebarVisible(false)} />
-            <div style={{ position: "relative", marginTop: "auto", ...glass, borderTop: `1px solid ${glassBorder}`, borderRadius: "18px 18px 0 0", maxHeight: "80dvh", overflowY: "auto", padding: 16, zIndex: 1 }}>
-              <div style={{ width: 36, height: 4, borderRadius: 2, background: border, margin: "0 auto 16px" }} />
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: text }}>Settings</span>
-                <button onClick={() => setSidebarVisible(false)} style={{ background: "none", border: "none", cursor: "pointer", color: textSm, padding: 4 }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                </button>
-              </div>
-
-              {/* Toggles */}
-              {(hasAS || hasDendro) && (
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: textSm, marginBottom: 8 }}>Display</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {hasAS && (
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 8, background: bgItem }}>
-                        <span style={{ fontSize: 13, color: textMd }}>Allele-specific</span>
-                        <button onClick={() => setAlleleMode(!alleleMode)} style={{ position: "relative", width: 36, height: 20, borderRadius: 10, border: "none", cursor: "pointer", background: alleleMode ? "#34C759" : (lightMode ? "#d1d1d6" : "#39393d"), transition: "background 0.2s" }}>
-                          <span style={{ position: "absolute", top: 2, left: alleleMode ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.4)", transition: "left 0.2s ease-in-out" }} />
-                        </button>
-                      </div>
-                    )}
-                    {hasDendro && (
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 8, background: bgItem }}>
-                        <span style={{ fontSize: 13, color: textMd }}>Dendrogram</span>
-                        <button onClick={() => setShowDendro(!showDendro)} style={{ position: "relative", width: 36, height: 20, borderRadius: 10, border: "none", cursor: "pointer", background: showDendro ? "#34C759" : (lightMode ? "#d1d1d6" : "#39393d"), transition: "background 0.2s" }}>
-                          <span style={{ position: "absolute", top: 2, left: showDendro ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.4)", transition: "left 0.2s ease-in-out" }} />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Quality filters */}
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: textSm, marginBottom: 8 }}>Quality Filters</div>
-                {[["Max Residual", "residual", 3], ["Max MAPD", "mapd", 4]].map(([label, key, max]) => (
-                  <div key={key} style={{ marginBottom: 10 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
-                      <span style={{ color: textSm }}>{label}</span>
-                      <span style={{ fontFamily: "monospace", color: textMd }}>{thresholds[key].toFixed(2)}</span>
-                    </div>
-                    <input type="range" min="0" max={max} step="0.05" value={thresholds[key]}
-                      onChange={e => setThresholds(t => ({ ...t, [key]: +e.target.value }))}
-                      style={{ width: "100%", accentColor: "#0A84FF" }} />
-                  </div>
-                ))}
-                <div style={{ fontSize: 12, color: textXs }}>{filteredCells.length} / {totalCells} cells ({passRate}%)</div>
-              </div>
-
-              {/* Cell search */}
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: textSm, marginBottom: 8 }}>Search Cell</div>
-                <input type="text" placeholder="Barcode..." value={search} onChange={e => setSearch(e.target.value)}
-                  style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${border}`, background: bgItem, color: text, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-              </div>
-
-              {/* Cell list */}
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: textSm, marginBottom: 8 }}>Cell List</div>
-                <div style={{ maxHeight: 160, overflowY: "auto", borderRadius: 8, border: `1px solid ${border}`, background: lightMode ? "#f8fafc" : "#1c1c1e" }}>
-                  {filteredCells.length === 0
-                    ? <div style={{ padding: 12, textAlign: "center", fontSize: 12, color: textXs }}>No cells match</div>
-                    : filteredCells.map(c => (
-                      <button key={c} onClick={() => { setSelectedCell(c); setSidebarVisible(false); setTab("profile"); }}
-                        style={{ width: "100%", textAlign: "left", padding: "8px 12px", fontSize: 12, fontFamily: "monospace", background: c === selectedCell ? "rgba(10,132,255,0.15)" : "transparent", color: c === selectedCell ? "#0A84FF" : textSm, border: "none", cursor: "pointer", display: "block" }}>
-                        {c}
-                      </button>
-                    ))}
-                </div>
-              </div>
-
-              {/* Nav buttons */}
-              <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                <button onClick={() => navigateCell(-1)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: bgItem, color: text, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>↑ Prev</button>
-                <button onClick={() => navigateCell(1)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: bgItem, color: text, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Next ↓</button>
-              </div>
-
-              <button onClick={() => { setData(null); setSelectedCell(null); setTab("heatmap"); setZoom(null); setSidebarVisible(false); }}
-                style={{ width: "100%", padding: "10px 0", borderRadius: 8, border: `1px solid ${border}`, background: "transparent", color: textSm, fontSize: 13, cursor: "pointer" }}>
-                Load new data
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Main content */}
-        <div style={{ flex: 1, overflowY: "auto", padding: 12 }}>
-          {tab === "heatmap" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: textMd }}>{alleleMode ? "Allele-Specific Heatmap" : "CN Heatmap"}</span>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {zoom && <button onClick={() => setZoom(null)} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "rgba(10,132,255,0.2)", color: "#0A84FF", border: "none", cursor: "pointer" }}>Reset zoom</button>}
-                  <DownloadMenu onDownload={fmt => heatmapPanelRef.current?.download("heatmap", fmt)} lightMode={lightMode} style={{ background: bgItem, color: textSm }} />
-                </div>
-              </div>
-              <div style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${border}`, background: bg2 }}>
-                <HeatmapPanel ref={heatmapPanelRef} data={heatmapData} cellOrder={filteredCells} chrInfo={data.chr_info}
-                  selectedCell={selectedCell} onCellClick={setSelectedCell} height={Math.max(280, Math.min(500, filteredCells.length * 2 + 60))}
-                  alleleMode={alleleMode} zoom={zoom} onZoomChange={setZoom} showDendro={showDendro} lightMode={lightMode} />
-              </div>
-              {selectedCell && (
-                <div style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 12, background: bgCard }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: textSm, marginBottom: 6 }}>Profile — <span style={{ color: "#0A84FF", fontFamily: "monospace" }}>{selectedCell}</span></div>
-                  <ProfilePlot data={data} cellName={selectedCell} height={180} alleleMode={alleleMode} lightMode={lightMode} showCi={showCi} />
-                </div>
-              )}
-            </div>
-          )}
-
-          {tab === "profile" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: textMd }}>Cell Profile</span>
-                <DownloadMenu onDownload={fmt => profilePlotRef.current?.download(selectedCell || "cell_profile", fmt)} lightMode={lightMode} style={{ background: bgItem, color: textSm }} />
-              </div>
-              {selectedCell && <div style={{ fontSize: 12, fontFamily: "monospace", color: "#0A84FF", padding: "4px 10px", borderRadius: 6, background: bgItem, alignSelf: "flex-start" }}>{selectedCell}</div>}
-              <div style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 12, background: bgCard }}>
-                <ProfilePlot ref={profilePlotRef} data={data} cellName={selectedCell} height={300} alleleMode={alleleMode} lightMode={lightMode} showCi={showCi} />
-              </div>
-              {selectedCell && (
-                <div style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 12, background: bgCard }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: textSm, marginBottom: 10 }}>Read Depth per Bin</div>
-                  <ReadDepthPlot data={data} cellName={selectedCell} height={150} lightMode={lightMode} />
-                </div>
-              )}
-              {selectedCell && (
-                <div style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 12, background: bgCard }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: textSm, marginBottom: 10 }}>Quality Metrics</div>
-                  <CellMetrics data={data} cellName={selectedCell} thresholds={thresholds} lightMode={lightMode} effectiveQuality={effectiveQuality} />
-                </div>
-              )}
-              {selectedCell && (
-                <div style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 12, background: bgCard }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: textSm, marginBottom: 10 }}>Lorenz Curve</div>
-                  <LorenzCurvePlot data={data} cellName={selectedCell} gini={effectiveQuality[selectedCell]?.gini ?? data.quality[selectedCell]?.gini} height={220} lightMode={lightMode} />
-                </div>
-              )}
-            </div>
-          )}
-
-          {tab === "quality" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: textMd }}>Quality Overview</span>
-              <div style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 12, background: bgCard }}>
-                <div style={{ fontSize: 11, color: textSm, marginBottom: 8 }}>MAPD vs Median Residual</div>
-                <QualityScatter data={data} thresholds={thresholds} selectedCell={selectedCell} onCellClick={setSelectedCell} height={320} lightMode={lightMode} />
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                {[["Total", totalCells, "text-[#0A84FF]", "#0A84FF"], ["Pass", filteredCells.length, "text-[#34C759]", "#34C759"], ["Rate", passRate + "%", "text-[#0A84FF]", "#0A84FF"]].map(([l, v, , c]) => (
-                  <div key={l} style={{ borderRadius: 10, border: `1px solid ${border}`, padding: 10, background: bgCard }}>
-                    <div style={{ fontSize: 10, color: textXs, marginBottom: 4 }}>{l}</div>
-                    <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "monospace", color: c }}>{v}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Bottom tab bar — glass, sticky over scrolling content */}
-        <nav style={{ display: "flex", borderTop: `1px solid ${glassBorder}`, ...glass, flexShrink: 0, position: "sticky", bottom: 0, zIndex: 30 }}>
-          {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              style={{ flex: 1, padding: "12px 0 10px", fontSize: 12, fontWeight: 600, border: "none", background: "transparent", cursor: "pointer",
-                color: tab === t.id ? "#0A84FF" : textSm,
-                borderTop: tab === t.id ? "2px solid #0A84FF" : "2px solid transparent" }}>
-              {t.label}
-            </button>
-          ))}
-        </nav>
-      </div>
-    );
+  const statusEl = selIdx == null ? null : passing[selIdx]
+    ? <span className="status" style={{ color: "var(--good)" }}><svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="6" fill="currentColor" /><path d="M3.4 6.2 5.2 8l3.4-3.6" stroke="#fff" strokeWidth="1.5" fill="none" /></svg>passes QC</span>
+    : <span className="status" style={{ color: "var(--serious)" }}><svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 .8 11.4 10.6H.6z" fill="currentColor" /><path d="M6 4.3v3M6 8.8v.2" stroke="#fff" strokeWidth="1.4" /></svg>flagged{reasons[selIdx] ? ": " + reasons[selIdx] : ""}</span>;
+  const pills = [];
+  if (selIdx != null) {
+    const add = (k, label, v, title) => { if (!isNaN(valOf(k))) pills.push([k, label, v, title]); };
+    add("ploidy", "ploidy", fmt(valOf("ploidy")));
+    add("n_reads_total", "reads", fmtCount(valOf("n_reads_total")), `${fmtInt(valOf("n_reads_total"))} reads in this cell's bins`);
+    add("reads_per_bin", "reads / bin", fmt(valOf("reads_per_bin"), 1));
+    add("coverage", "coverage", fmtMetric("coverage", valOf("coverage")));
+    add("mapd", "MAPD", fmt(valOf("mapd"), 3));
+    add("median_residual", "residual", fmt(valOf("median_residual"), 3));
+    add("gini", "Gini", fmt(valOf("gini"), 3));
+    add("bins_with_cna", "CNA bins", fmtInt(valOf("bins_with_cna")), `bins whose copy number is not 2, of ${nBins}`);
+    add("breakpoints", "breakpoints", fmtInt(valOf("breakpoints")));
   }
 
-  /* ── DESKTOP LAYOUT (unchanged) ─────────────────────────────────────────── */
+  const profileCard = (
+    <div className="card" key="profile">
+      <div className="hd">
+        <h2>{selectedCell ? <span className="mono">{selectedCell}</span> : "Cell profile"}</h2>
+        <span className="sub">{statusEl}{selectedCell && data.cell_types?.[selectedCell] && <span className="ok"> · {data.cell_types[selectedCell]}</span>}{alleleMode && hasAS && <span className="ok"> · allele-specific</span>}</span>
+        <DownloadMenu onSave={fmtName => saveCanvas([profilePlotRef.current], `${fileName || "ascatsc"}_${selectedCell || "profile"}`, fmtName)} />
+      </div>
+      {pills.length > 0 && <div className="pills">{pills.map(([k, label, v, title]) => (
+        <div className={"pill" + (failsThreshold(k) ? " bad" : "")} key={k} title={title || metricOf(k)?.help}><span className="k">{label}</span><span className="v">{v}</span></div>
+      ))}</div>}
+      <div className="bd">
+        <ProfilePlot ref={profilePlotRef} data={data} cellName={selectedCell} height={300} alleleMode={alleleMode} showCi={showCi} zoomX={zoom?.x} theme={theme} />
+        <ReadDepthPlot data={data} cellName={selectedCell} zoomX={zoom?.x} theme={theme} />
+      </div>
+    </div>
+  );
+
+  const qcTiles = [["Cells passing", nPass.toLocaleString(), `of ${totalCells.toLocaleString()} (${totalCells ? Math.round((100 * nPass) / totalCells) : 0}%)`]];
+  for (const t of THRESH) if (thresholds[t.key] != null && ranges[t.key]) qcTiles.push([t.tile, failCounts[t.key].toLocaleString(), `${t.dir === "max" ? "above" : "below"} ${t.f(thresholds[t.key])}`]);
+
+  const readsTotal = vals.n_reads_total ? vals.n_reads_total.filter(v => !isNaN(v)) : null;
+  const datasetTiles = [["Cells", totalCells.toLocaleString(), hasCellTypes ? `${cellTypeOptions.length} cell types` : ""]];
+  if (readsTotal?.length) datasetTiles.push(["Reads", fmtCount(readsTotal.reduce((a, v) => a + v, 0)), `median ${fmtCount(quantile([...readsTotal].sort((a, b) => a - b), 0.5))} per cell`]);
+  datasetTiles.push(["Bins", nBins.toLocaleString(), binSizeMb ? fmtBp(binSizeMb * 1e6) + " each" : ""]);
+  datasetTiles.push(["Chromosomes", data.chr_info.length, fmtBp(data.bins.end_cum[nBins - 1]) + " in bins"]);
+  datasetTiles.push(["Allele-specific", hasAS ? "yes" : "no", hasAS ? (hasCi ? "with BAF intervals" : "major and minor copies") : "total copy number only"]);
+  datasetTiles.push(["Clustering", hasDendro ? "Ward.D2" : "–", hasDendro ? "Manhattan distance of profiles" : "no dendrogram"]);
+
   return (
-    <div className="min-h-screen" style={{ background: bg, color: text, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
-      {/* Header — glass toolbar, sticky over scrolling content */}
-      <header className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: glassBorder, ...glass, position: "sticky", top: 0, zIndex: 30 }}>
-        <div className="flex items-center gap-3 flex-wrap">
-          <img src={process.env.PUBLIC_URL + "/ASCATsc_logo.svg"} alt="ASCAT.sc logo" className="w-7 h-7 rounded-lg object-contain" />
-          <span className="text-sm" style={{ fontWeight: 600, letterSpacing: "-0.01em", color: text }}>ASCAT.sc Explorer</span>
-          <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: bgItem, color: textSm }}>
-            {totalCells} cells &middot; {data.bins.chr.length} bins
-          </span>
-          {hasAS && <span className="text-xs px-2 py-0.5 rounded-full flex items-center gap-1.5" style={{ background: bgItem, color: textSm }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: accent2, flexShrink: 0 }} />
-            Allele-specific
-          </span>}
+    <div className={"app" + (panel ? "" : " nopanel")}>
+      <header>
+        <div className="brand"><img className="logo logo-light" src={LOGO_LIGHT} alt="ASCAT.sc" /><img className="logo logo-dark" src={LOGO_DARK} alt="ASCAT.sc" />ASCAT.sc</div>
+        <div className="project" title={fileName}>{fileName}</div>
+        <div className="chips">
+          <span className="chip">{totalCells.toLocaleString()} cells · {nBins.toLocaleString()} bins</span>
+          {hasAS && <span className="chip as">allele-specific</span>}
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setSidebarVisible(v => !v)}
-            title={sidebarVisible ? "Hide panel" : "Show panel"}
-            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-colors"
-            style={{ background: bgItem, color: textSm }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>
-            </svg>
-            {sidebarVisible ? "Hide panel" : "Show panel"}
-          </button>
-          <ThemeToggle lightMode={lightMode} onToggle={() => setLightMode(v => !v)} />
-          <button onClick={() => { setData(null); setSelectedCell(null); setTab("heatmap"); setZoom(null); }}
-            className="text-xs px-3 py-1.5 rounded-lg hover:bg-white/5 transition-colors" style={{ color: textSm }}>Load new data</button>
-        </div>
+        <div className="spacer" />
+        <button className="iconbtn" onClick={() => setPanel(v => !v)} title={panel ? "Hide the side panel" : "Show the side panel"} aria-pressed={panel}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M6 2.5v11" /></svg><span className="btnlabel">Panel</span>
+        </button>
+        <button className="iconbtn" onClick={reset} title="Open another file">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5-5 5 5M12 5v12" /></svg><span className="btnlabel">Open</span>
+        </button>
+        <button className="iconbtn" onClick={toggleTheme} title="Light or dark (t)" aria-label="Switch between light and dark"><ThemeIcon /></button>
       </header>
 
-      <div className="flex">
-        {/* Sidebar — glass, sticky under the header while content scrolls beside it */}
-        {sidebarVisible && <aside className="flex-shrink-0 overflow-y-auto border-r"
-          style={{ width: 280, borderColor: glassBorder, ...glass, position: "sticky", top: 49, alignSelf: "flex-start", maxHeight: "calc(100vh - 49px)", zIndex: 20 }}>
-          <div className="p-4 space-y-4">
-            {/* Tabs — macOS-style segmented control */}
-            <div className="flex gap-0.5 p-0.5 rounded-lg" style={{ background: bgItem }}>
-              {TABS.map(t => (
-                <button key={t.id} onClick={() => setTab(t.id)}
-                  className="flex-1 text-xs py-1.5 rounded-md font-medium transition-all"
-                  style={tab === t.id
-                    ? { background: lightMode ? "#ffffff" : "#5a5a5e", color: text, boxShadow: lightMode ? "0 1px 2px rgba(0,0,0,0.1)" : "0 1px 2px rgba(0,0,0,0.3)" }
-                    : { color: textSm }}>
-                  {t.label}
+      <aside>
+        <div className="group">
+          <h3>Copy number</h3>
+          {hasAS && (
+            <div className="seg">
+              <button className={alleleMode ? "" : "on"} onClick={() => setAlleleMode(false)}>Total</button>
+              <button className={alleleMode ? "on" : ""} onClick={() => setAlleleMode(true)}>Allele-specific</button>
+            </div>
+          )}
+          {hasDendro && <div className="row"><div><label>Dendrogram</label><small>Ward clustering of profiles</small></div><Switch on={showDendro} onChange={setShowDendro} label="Dendrogram" /></div>}
+          {alleleMode && hasCi && <div className="row"><div><label>BAF intervals</label><small>5–95% ribbons on the profile</small></div><Switch on={showCi} onChange={setShowCi} label="BAF intervals" /></div>}
+          <div className="slider">
+            <div className="top"><span>Min segment size</span><span>{minSegmentMb ? `${minSegmentMb} Mb` : "off"}</span></div>
+            <input type="range" min="0" max={Math.max(1, Math.round(nBins * binSizeMb / 2))} step={Math.max(1, Math.ceil(binSizeMb))} value={minSegmentMb} aria-label="Minimum segment size"
+              style={{ "--p": ((100 * minSegmentMb) / Math.max(1, Math.round(nBins * binSizeMb / 2))).toFixed(1) + "%" }}
+              onChange={e => setMinSegmentMb(+e.target.value)} />
+            <small className="hint">shorter non-diploid segments show as copy number 2</small>
+          </div>
+          <div className="slider">
+            <div className="top"><span>Heatmap height</span><span>{heatmapH} px</span></div>
+            <input type="range" min="250" max="900" step="10" value={heatmapH} aria-label="Heatmap height" style={{ "--p": ((100 * (heatmapH - 250)) / 650).toFixed(1) + "%" }} onChange={e => setHeatmapH(+e.target.value)} />
+          </div>
+        </div>
+
+        <div className="group">
+          <h3>Cells</h3>
+          <div className="row"><div><label>Passing QC only</label><small>{nPass === totalCells ? "every cell passes the thresholds" : `hides ${(totalCells - nPass).toLocaleString()} flagged of ${totalCells.toLocaleString()} cells`}</small></div><Switch on={passOnly} onChange={setPassOnly} label="Passing QC only" /></div>
+          {THRESH.filter(t => ranges[t.key]).map(t => (
+            <ThresholdSlider key={t.key} t={t} value={thresholds[t.key]} range={ranges[t.key]} count={failCounts[t.key]} passOnly={passOnly}
+              onChange={v => setThresholds(s => ({ ...s, [t.key]: v }))} />
+          ))}
+          {hasCellTypes && (
+            <div className="row" style={{ display: "block" }}>
+              <label>Cell type</label>
+              <div className="seg wrap" style={{ marginTop: 8 }}>
+                {["All", ...cellTypeOptions].map(ct => <button key={ct} className={cellTypeFilter === ct ? "on" : ""} onClick={() => setCellTypeFilter(ct)}>{ct}</button>)}
+              </div>
+            </div>
+          )}
+          <div className="row" style={{ background: "transparent", padding: "6px 2px 0" }}><span className="ok">{filteredCells.length.toLocaleString()} cells shown</span></div>
+        </div>
+
+        <div className="group">
+          <h3>Find a cell</h3>
+          <input ref={searchRef} className="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Barcode or name  ( / )" autoComplete="off" spellCheck="false" />
+          <div className="cells" role="listbox" aria-label="Cells">
+            {listCells.slice(0, 400).map(c => {
+              const i = cellIndex.get(c), ok = i == null || passing[i];
+              return (
+                <button key={c} className={"cell" + (c === selectedCell ? " on" : "")} role="option" aria-selected={c === selectedCell} onClick={() => setSelectedCell(c)}>
+                  <span className="dot" style={{ background: ok ? "var(--good)" : "var(--serious)" }} title={ok ? "passes QC" : "flagged: " + reasons[i]} />
+                  <span className="nm">{c}</span>
+                  {hasCellTypes && data.cell_types?.[c] && <span className="ct">{data.cell_types[c]}</span>}
+                  <span className="pl">{i != null ? fmt(vals.ploidy?.[i]) : ""}</span>
                 </button>
-              ))}
-            </div>
+              );
+            })}
+            {listCells.length > 400 && <div className="more">and {(listCells.length - 400).toLocaleString()} more; refine the search</div>}
+            {!listCells.length && <div className="more">No match.</div>}
+          </div>
+          <div className="navbtns"><button className="iconbtn" onClick={() => navigateCell(-1)}>↑ Previous</button><button className="iconbtn" onClick={() => navigateCell(1)}>Next ↓</button></div>
+        </div>
+        <div className="hint-keys"><kbd>↑</kbd> <kbd>↓</kbd> cells · <kbd>drag</kbd> zoom · <kbd>Esc</kbd> reset · <kbd>/</kbd> search · <kbd>t</kbd> theme</div>
+      </aside>
 
-            {/* Toggles */}
-            {(hasAS || hasDendro) && (
-              <div className="space-y-2">
-                {hasAS && (
-                  <div className="flex items-center justify-between p-2.5 rounded-lg" style={{ background: bgItem }}>
-                    <span className="text-xs" style={{ color: textMd }}>Allele-specific</span>
-                    <button onClick={() => setAlleleMode(!alleleMode)} style={{ position:"relative", width:36, height:20, borderRadius:10, border:"none", cursor:"pointer", background: alleleMode ? "#34C759" : (lightMode ? "#d1d1d6" : "#39393d"), transition:"background 0.2s" }}>
-                      <span style={{ position:"absolute", top:2, left: alleleMode ? 18 : 2, width:16, height:16, borderRadius:"50%", background:"#fff", boxShadow:"0 1px 3px rgba(0,0,0,0.4)", transition:"left 0.2s ease-in-out" }} />
-                    </button>
-                  </div>
-                )}
-                {hasDendro && (
-                  <div className="flex items-center justify-between p-2.5 rounded-lg" style={{ background: bgItem }}>
-                    <span className="text-xs" style={{ color: textMd }}>Dendrogram</span>
-                    <button onClick={() => setShowDendro(!showDendro)} style={{ position:"relative", width:36, height:20, borderRadius:10, border:"none", cursor:"pointer", background: showDendro ? "#34C759" : (lightMode ? "#d1d1d6" : "#39393d"), transition:"background 0.2s" }}>
-                      <span style={{ position:"absolute", top:2, left: showDendro ? 18 : 2, width:16, height:16, borderRadius:"50%", background:"#fff", boxShadow:"0 1px 3px rgba(0,0,0,0.4)", transition:"left 0.2s ease-in-out" }} />
-                    </button>
-                  </div>
-                )}
-                {alleleMode && hasCi && (
-                  <div className="flex items-center justify-between p-2.5 rounded-lg" style={{ background: bgItem }}>
-                    <span className="text-xs" style={{ color: textMd }}>CI ribbons</span>
-                    <button onClick={() => setShowCi(!showCi)} style={{ position:"relative", width:36, height:20, borderRadius:10, border:"none", cursor:"pointer", background: showCi ? "#34C759" : (lightMode ? "#d1d1d6" : "#39393d"), transition:"background 0.2s" }}>
-                      <span style={{ position:"absolute", top:2, left: showCi ? 18 : 2, width:16, height:16, borderRadius:"50%", background:"#fff", boxShadow:"0 1px 3px rgba(0,0,0,0.4)", transition:"left 0.2s ease-in-out" }} />
-                    </button>
-                  </div>
-                )}
+      <main>
+        <div className="tabs" role="tablist">
+          {[["cn", "Copy number", "Heatmap and cell profiles"], ["qc", "Cell QC", "Per-cell quality metrics"], ["data", "Dataset", "What this export holds"]].map(([id, label, title]) => (
+            <button key={id} className={"tab" + (tab === id ? " on" : "")} role="tab" aria-selected={tab === id} title={title} onClick={() => setTab(id)}>{TAB_ICONS[id]}{label}</button>
+          ))}
+        </div>
+
+        {tab === "cn" && <section>
+          <div className="card">
+            <div className="hd">
+              <h2>Genome-wide copy number</h2>
+              <span className="sub">{filteredCells.length.toLocaleString()} of {totalCells.toLocaleString()} cells · {nBins.toLocaleString()} bins{isZoomed ? " (zoomed)" : ""}{alleleMode ? " · allele-specific" : ""}</span>
+              {isZoomed && <button className="zoomchip" onClick={() => setZoom(null)}>{zoomLabel()}  ✕</button>}
+              <DownloadMenu onSave={f => heatmapPanelRef.current?.download(`${fileName || "ascatsc"}_heatmap`, f)} />
+            </div>
+            <div className="bd">
+              <HeatmapPanel ref={heatmapPanelRef} data={heatmapData} cellOrder={filteredCells} chrInfo={data.chr_info}
+                selectedCell={selectedCell} onCellClick={setSelectedCell} height={heatmapH}
+                alleleMode={alleleMode} zoom={zoom} onZoomChange={setZoom} showDendro={showDendro && hasDendro} theme={theme} />
+              <div className="keyrow">
+                <span className="keytitle">{alleleMode ? "Major | minor copies" : "Total copy number"}</span>
+                {alleleMode
+                  ? <div className="legend as" aria-label="allele-specific state colours">{Object.keys(AS_COLORS).filter(k => k !== "NA").map(k => <span className="sw" key={k}><i style={{ background: AS_COLORS[k] }} />{k}</span>)}</div>
+                  : <div className="legend" aria-label="copy number colours">{[0, 1, 2, 3, 4, 5, 6].map(k => <span className="sw" key={k}><i style={{ background: `var(--cn${k})` }} />{k === 6 ? "6+" : k}</span>)}<span className="sw"><i style={{ background: "var(--cnna)" }} />NA</span></div>}
+                <span className="ok" style={{ marginLeft: "auto" }}>drag to zoom · double-click to reset</span>
               </div>
-            )}
-
-            {/* Min Segment Size */}
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: textSm }}>Heatmap Display</div>
-              <div className="mb-2">
-                <div className="flex justify-between items-center text-xs mb-1">
-                  <span style={{ color: textSm }}>Min Segment Size</span>
-                  <div className="flex items-center gap-1 rounded-md px-2 py-0.5"
-                    style={{ background: bgItem, border: `1px solid ${border}` }}>
-                    <input
-                      type="text" inputMode="numeric" pattern="[0-9]*"
-                      value={minSegmentMb === 0 ? "" : String(minSegmentMb)}
-                      placeholder="0"
-                      onChange={e => {
-                        const raw = e.target.value.replace(/[^0-9]/g, "");
-                        const v = raw === "" ? 0 : Math.min(Math.round(nBins * binSizeMb / 2), parseInt(raw, 10));
-                        setMinSegmentMb(v);
-                      }}
-                      className="bg-transparent border-none outline-none text-right font-mono"
-                      style={{ width: 36, color: textMd, fontSize: 11 }} />
-                    <span className="font-mono" style={{ color: textXs, fontSize: 10 }}>Mb</span>
-                  </div>
-                </div>
-                <input type="range" min="0" max={Math.round(nBins * binSizeMb / 2)} step={Math.ceil(binSizeMb)}
-                  value={minSegmentMb}
-                  onChange={e => setMinSegmentMb(+e.target.value)}
-                  className="w-full h-1 rounded-full appearance-none cursor-pointer"
-                  style={{ accentColor: "#0A84FF", background: border }} />
-                <div className="text-xs mt-1" style={{ color: textXs }}>
-                  Segments shorter than this are shown as CN=2 (Mb)
-                </div>
-              </div>
-            </div>
-
-            {/* Quality Filters */}
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: textSm }}>Quality Filters</div>
-              {[["Max Residual", "residual", 3], ["Max MAPD", "mapd", 4]].map(([label, key, max]) => (
-                <div key={key} className="mb-2">
-                  <div className="flex justify-between text-xs mb-1">
-                    <span style={{ color: textSm }}>{label}</span>
-                    <span className="font-mono" style={{ color: textMd }}>{thresholds[key].toFixed(2)}</span>
-                  </div>
-                  <input type="range" min="0" max={max} step="0.05" value={thresholds[key]}
-                    onChange={e => setThresholds(t => ({ ...t, [key]: +e.target.value }))}
-                    className="w-full h-1 rounded-full appearance-none cursor-pointer"
-                    style={{ accentColor: "#0A84FF", background: border }} />
-                </div>
-              ))}
-              {hasCoverage && coverageStats && (
-                <div className="mb-2">
-                  <div className="flex justify-between text-xs mb-1">
-                    <span style={{ color: textSm }}>Min Coverage</span>
-                    <span className="font-mono" style={{ color: textMd }}>
-                      {thresholds.coverage != null ? `${thresholds.coverage}×` : "off"}
-                    </span>
-                  </div>
-                  <input type="range" min={coverageStats.min} max={coverageStats.max} step="1"
-                    value={thresholds.coverage ?? coverageStats.min}
-                    onChange={e => setThresholds(t => ({ ...t, coverage: +e.target.value }))}
-                    className="w-full h-1 rounded-full appearance-none cursor-pointer"
-                    style={{ accentColor: "#0A84FF", background: border }} />
-                  <button className="text-xs mt-1" style={{ color: textXs }}
-                    onClick={() => setThresholds(t => ({ ...t, coverage: thresholds.coverage != null ? null : coverageStats.min }))}>
-                    {thresholds.coverage != null ? "disable" : "enable"}
-                  </button>
-                </div>
-              )}
-              {hasBinsWithCna && nBins > 0 && (
-                <div className="mb-2">
-                  <div className="flex justify-between text-xs mb-1">
-                    <span style={{ color: textSm }}>Max Bins w/ CNA</span>
-                    <span className="font-mono" style={{ color: textMd }}>
-                      {thresholds.bins_with_cna != null ? `${thresholds.bins_with_cna} / ${nBins}` : "off"}
-                    </span>
-                  </div>
-                  <input type="range" min="0" max={nBins} step="1"
-                    value={thresholds.bins_with_cna ?? nBins}
-                    onChange={e => setThresholds(t => ({ ...t, bins_with_cna: +e.target.value }))}
-                    className="w-full h-1 rounded-full appearance-none cursor-pointer"
-                    style={{ accentColor: "#0A84FF", background: border }} />
-                  <button className="text-xs mt-1" style={{ color: textXs }}
-                    onClick={() => setThresholds(t => ({ ...t, bins_with_cna: thresholds.bins_with_cna != null ? null : nBins }))}>
-                    {thresholds.bins_with_cna != null ? "disable" : "enable"}
-                  </button>
-                </div>
-              )}
-              {hasGini && (
-                <div className="mb-2">
-                  <div className="flex justify-between text-xs mb-1">
-                    <span style={{ color: textSm }}>Max Gini</span>
-                    <span className="font-mono" style={{ color: textMd }}>
-                      {thresholds.gini != null ? thresholds.gini.toFixed(3) : "off"}
-                    </span>
-                  </div>
-                  <input type="range" min="0" max="1" step="0.01"
-                    value={thresholds.gini ?? 1}
-                    onChange={e => setThresholds(t => ({ ...t, gini: +e.target.value }))}
-                    className="w-full h-1 rounded-full appearance-none cursor-pointer"
-                    style={{ accentColor: "#0A84FF", background: border }} />
-                  <button className="text-xs mt-1" style={{ color: textXs }}
-                    onClick={() => setThresholds(t => ({ ...t, gini: thresholds.gini != null ? null : 1 }))}>
-                    {thresholds.gini != null ? "disable" : "enable"}
-                  </button>
-                </div>
-              )}
-              <div className="text-xs" style={{ color: textXs }}>{filteredCells.length} / {totalCells} cells ({passRate}%)</div>
-            </div>
-
-            {/* Cell Type Filter */}
-            {hasCellTypes && (
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: textSm }}>Cell Type</div>
-                <div className="flex flex-wrap gap-1">
-                  {["All", ...cellTypeOptions].map(ct => (
-                    <button key={ct} onClick={() => setCellTypeFilter(ct)}
-                      className="text-xs px-2 py-1 rounded-md transition-colors"
-                      style={{
-                        background: cellTypeFilter === ct ? "#0A84FF" : bgItem,
-                        color: cellTypeFilter === ct ? "#ffffff" : textSm,
-                      }}>
-                      {ct}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Search */}
-            <div className="relative">
-              <svg className="absolute left-2.5 top-2.5" style={{ color: textXs }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
-              <input type="text" placeholder="Search barcode..." value={search} onChange={e => setSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-2 rounded-lg text-xs font-mono border-0 outline-none focus:ring-1 focus:ring-[#0A84FF]"
-                style={{ background: bgItem, color: text }} />
-            </div>
-
-            {/* Cell List */}
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: textSm }}>Cell List</div>
-              <div className="rounded-lg overflow-hidden border" style={{ borderColor: border, maxHeight: 200, overflowY: "auto", background: lightMode ? "#f8fafc" : "#1c1c1e" }}>
-                {filteredCells.length === 0
-                  ? <div className="p-3 text-xs text-center" style={{ color: textXs }}>No cells match</div>
-                  : filteredCells.map(c => (
-                    <button key={c} onClick={() => setSelectedCell(c)}
-                      className="w-full text-left px-3 py-1.5 text-xs font-mono truncate transition-colors"
-                      style={{
-                        background: c === selectedCell ? "rgba(10,132,255,0.15)" : "transparent",
-                        color: c === selectedCell ? "#0A84FF" : textSm,
-                      }}>{c}
-                      {hasCellTypes && data.cell_types?.[c] && (
-                        <span className="ml-1 opacity-50 text-xs">[{data.cell_types[c]}]</span>
-                      )}
-                    </button>
-                  ))}
-              </div>
-            </div>
-
-            {/* Nav */}
-            <div className="flex gap-2">
-              <button onClick={() => navigateCell(-1)} className="flex-1 py-1.5 text-xs rounded-lg transition-colors"
-                style={{ background: bgItem, color: text, fontWeight: 600 }}>&uarr; Prev</button>
-              <button onClick={() => { if (selectedCell) setTab("profile"); }}
-                className="flex-1 py-1.5 text-xs rounded-lg bg-[#0A84FF] text-white hover:bg-[#0A84FF]/85 transition-colors font-medium">View</button>
-              <button onClick={() => navigateCell(1)} className="flex-1 py-1.5 text-xs rounded-lg transition-colors"
-                style={{ background: bgItem, color: text, fontWeight: 600 }}>Next &darr;</button>
-            </div>
-
-            {/* Selected metrics */}
-            {selectedCell && tab !== "profile" && (
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: textSm }}>Selected</div>
-                <div className="text-xs font-mono text-[#0A84FF] mb-1 truncate">{selectedCell}</div>
-                {hasCellTypes && data.cell_types?.[selectedCell] && (
-                  <div className="text-xs mb-2" style={{ color: textXs }}>Type: {data.cell_types[selectedCell]}</div>
-                )}
-                <CellMetrics data={data} cellName={selectedCell} thresholds={thresholds} lightMode={lightMode} effectiveQuality={effectiveQuality} />
-              </div>
-            )}
-
-            {/* Hints */}
-            <div className="text-xs space-y-0.5 pt-2 border-t" style={{ borderColor: border, color: textXs }}>
-              <div><kbd className="px-1 py-0.5 rounded" style={{ background: bgItem, color: textXs }}>&uarr;&darr;</kbd> Navigate</div>
-              <div><kbd className="px-1 py-0.5 rounded" style={{ background: bgItem, color: textXs }}>drag</kbd> Brush-zoom</div>
-              <div><kbd className="px-1 py-0.5 rounded" style={{ background: bgItem, color: textXs }}>dblclick</kbd> / <kbd className="px-1 py-0.5 rounded" style={{ background: bgItem, color: textXs }}>Esc</kbd> Reset</div>
             </div>
           </div>
-        </aside>}
-
-        {/* Main */}
-        <main className="flex-1 min-w-0 p-5" style={{ background: bg }}>
-          {tab === "heatmap" && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-3">
-                  <h2 className="text-sm font-semibold" style={{ color: textMd }}>{alleleMode ? "Allele-Specific Heatmap" : "Copy Number Heatmap"}</h2>
-                  {isZoomed && (
-                    <button onClick={() => setZoom(null)} className="text-xs px-2.5 py-1 rounded-md bg-[#0A84FF]/15 text-[#0A84FF] hover:bg-[#0A84FF]/25 flex items-center gap-1">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>Reset Zoom
-                    </button>
-                  )}
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs" style={{ color: textXs }}>{filteredCells.length} cells</span>
-                  <input type="range" min="250" max="900" step="50" value={heatmapH} onChange={e => setHeatmapH(+e.target.value)}
-                    className="w-20 h-1 rounded-full appearance-none cursor-pointer" style={{ accentColor: "#0A84FF", background: border }} />
-                  <DownloadMenu onDownload={fmt => heatmapPanelRef.current?.download("heatmap", fmt)} lightMode={lightMode} style={{ background: bgItem, color: textSm }} />
-                </div>
-              </div>
-              <div className="rounded-2xl overflow-hidden border" style={{ borderColor: border, background: bg2 }}>
-                <HeatmapPanel ref={heatmapPanelRef} data={heatmapData} cellOrder={filteredCells} chrInfo={data.chr_info}
-                  selectedCell={selectedCell} onCellClick={setSelectedCell} height={heatmapH}
-                  alleleMode={alleleMode} zoom={zoom} onZoomChange={setZoom} showDendro={showDendro} lightMode={lightMode} />
-              </div>
-              {isZoomed && (
-                <div className="text-xs flex items-center gap-2" style={{ color: textXs }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35M11 8v6M8 11h6" /></svg>
-                  Drag to zoom further &middot; Double-click or Esc to reset
-                </div>
-              )}
-              {selectedCell && (
-                <div className="rounded-2xl border p-4" style={{ borderColor: border, background: bgCard }}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: textSm }}>Profile</span>
-                    <span className="text-xs font-mono text-[#0A84FF]">{selectedCell}</span>
-                    {alleleMode && <span className="text-xs" style={{ color: accent2 }}>(allele-specific)</span>}
-                  </div>
-                  <ProfilePlot data={data} cellName={selectedCell} height={220} alleleMode={alleleMode} lightMode={lightMode} showCi={showCi} />
-                </div>
-              )}
+          {profileCard}
+          {selectedCell && <div className="grid2">
+            <div className="card">
+              <div className="hd"><h2>Coverage evenness</h2><span className="sub">Lorenz curve of the reads over bins</span></div>
+              <div className="bd"><LorenzCurvePlot data={data} cellName={selectedCell} gini={valOf("gini")} theme={theme} /></div>
             </div>
-          )}
-
-          {tab === "profile" && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <h2 className="text-sm font-semibold" style={{ color: textMd }}>Cell Profile</h2>
-                {selectedCell && <span className="text-xs font-mono text-[#0A84FF] px-2 py-0.5 rounded-md" style={{ background: bgItem }}>{selectedCell}</span>}
-                {alleleMode && <span className="text-xs" style={{ color: accent2 }}>(allele-specific)</span>}
-                <DownloadMenu onDownload={fmt => profilePlotRef.current?.download(selectedCell || "cell_profile", fmt)} lightMode={lightMode} style={{ background: bgItem, color: textSm }} />
-              </div>
-              <div className="rounded-2xl border p-4" style={{ borderColor: border, background: bgCard }}>
-                <ProfilePlot ref={profilePlotRef} data={data} cellName={selectedCell} height={360} alleleMode={alleleMode} lightMode={lightMode} showCi={showCi} />
-              </div>
-              {selectedCell && (
-                <div className="rounded-2xl border p-4" style={{ borderColor: border, background: bgCard }}>
-                  <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: textSm }}>Read Depth per Bin</div>
-                  <ReadDepthPlot data={data} cellName={selectedCell} height={170} lightMode={lightMode} />
-                </div>
-              )}
-              {selectedCell && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="rounded-2xl border p-4" style={{ borderColor: border, background: bgCard }}>
-                    <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: textSm }}>Quality Metrics</div>
-                    <CellMetrics data={data} cellName={selectedCell} thresholds={thresholds} lightMode={lightMode} effectiveQuality={effectiveQuality} />
-                  </div>
-                  <div className="rounded-2xl border p-4" style={{ borderColor: border, background: bgCard }}>
-                    <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: textSm }}>Lorenz Curve</div>
-                    <LorenzCurvePlot data={data} cellName={selectedCell} gini={effectiveQuality[selectedCell]?.gini ?? data.quality[selectedCell]?.gini} height={240} lightMode={lightMode} />
-                  </div>
-                </div>
-              )}
+            <div className="card">
+              <div className="hd"><h2>This cell's QC</h2><span className="sub">against all cells · ▲ beyond median ± 3 MAD on the bad side</span></div>
+              <div className="bd tablewrap"><table>
+                <thead><tr><th>metric</th><th>cell</th><th>median</th><th /></tr></thead>
+                <tbody>{metAll.map(m => {
+                  const v = valOf(m.key), out = isOutlier(m, v), fail = failsThreshold(m.key);
+                  return <tr key={m.key}><td title={m.help}>{m.label}</td><td style={{ fontWeight: 600, color: fail ? "var(--serious)" : undefined }}>{fmtMetric(m.key, v)}</td><td className="ok">{fmtMetric(m.key, m.median)}</td>
+                    <td style={{ color: "var(--serious)", width: 1, whiteSpace: "nowrap" }}>{fail ? "threshold" : out ? "▲" : ""}</td></tr>;
+                })}</tbody>
+              </table></div>
             </div>
-          )}
+          </div>}
+        </section>}
 
-          {tab === "quality" && (
-            <div className="space-y-4">
-              <h2 className="text-sm font-semibold" style={{ color: textMd }}>Quality Overview</h2>
-              <div className="rounded-2xl border p-4" style={{ borderColor: border, background: bgCard }}>
-                <div className="text-xs mb-2" style={{ color: textSm }}>MAPD vs Median Residual</div>
-                <QualityScatter data={data} thresholds={thresholds} selectedCell={selectedCell} onCellClick={setSelectedCell} height={400} lightMode={lightMode} />
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                {[["Total cells", totalCells, "text-[#0A84FF]"], ["Pass filter", filteredCells.length, "text-[#34C759]"], ["Pass rate", passRate + "%", "text-[#0A84FF]"]].map(([l, v, c]) => (
-                  <div key={l} className="rounded-2xl border p-4" style={{ borderColor: border, background: bgCard }}>
-                    <div className="text-xs mb-1" style={{ color: textXs }}>{l}</div>
-                    <div className={`text-2xl font-bold font-mono ${c}`}>{v}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </main>
-      </div>
+        {tab === "qc" && <section>
+          <QCTab cells={cells} vals={vals} metAll={metAll} passing={passing} reasons={reasons} shown={shownSet} tiles={qcTiles} thresholds={activeThresholds}
+            sel={selectedCell} onSelect={setSelectedCell} theme={theme}>{profileCard}</QCTab>
+        </section>}
+
+        {tab === "data" && <section>
+          <div className="card"><div className="hd"><h2>Dataset</h2><span className="sub">{fileName}</span></div>
+            <div className="bd" style={{ paddingBottom: 0 }}><div className="tiles">
+              {datasetTiles.map(([k, v, s]) => <div className="tile" key={k}><div className="k">{k}</div><div className={"v" + (String(v).length > 9 ? " long" : "")} title={String(v)}>{v}</div><div className="s">{s}</div></div>)}
+            </div></div>
+          </div>
+          <div className="card"><div className="hd"><h2>QC metrics</h2><span className="sub">{data.qc_metrics ? "from res$QC_metrics (getQCs), completed in the browser" : "computed in the browser from the export, as getQCs() does"}</span></div>
+            <div className="bd"><span className="ok">{metAll.map(m => m.label).join(" · ")}</span></div>
+          </div>
+        </section>}
+      </main>
     </div>
   );
 }

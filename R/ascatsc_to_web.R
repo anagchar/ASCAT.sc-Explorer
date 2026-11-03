@@ -460,6 +460,26 @@ export_for_web <- function(app_data,
     q
   }), cell_names)
 
+  # 6b. qc_metrics — getQCs()'s res$QC_metrics, when it was run. The explorer
+  # computes these metrics itself otherwise, from raw / profiles / reads.
+  qc_metrics_out <- NULL
+  if (!is.null(res$QC_metrics)) {
+    qm <- tryCatch(as.data.frame(res$QC_metrics), error = function(e) NULL)
+    if (!is.null(qm) && nrow(qm) > 0) {
+      id_col <- intersect(c("cell", "sample", "barcode"), names(qm))
+      ids <- if (length(id_col)) as.character(qm[[id_col[1]]]) else rownames(qm)
+      num_cols <- names(qm)[vapply(qm, is.numeric, logical(1))]
+      keep <- ids %in% cell_names
+      if (length(num_cols) && any(keep)) {
+        message(sprintf("  Serializing QC_metrics (%d metrics)...", length(num_cols)))
+        qc_metrics_out <- setNames(lapply(which(keep), function(i)
+          lapply(setNames(num_cols, num_cols), function(k) {
+            v <- qm[[k]][i]; if (is.na(v) || !is.finite(v)) NULL else round(v, 6)
+          })), ids[keep])
+      }
+    }
+  }
+
   # 7. clustering_order
   clustering_order <- app_data$ordered_cells
 
@@ -531,6 +551,7 @@ export_for_web <- function(app_data,
                   clustering_order = clustering_order)
   if (!is.null(raw_out))        payload$raw        <- raw_out
   if (!is.null(reads_out))      payload$reads      <- reads_out
+  if (!is.null(qc_metrics_out)) payload$qc_metrics <- qc_metrics_out
   if (!is.null(nMajor_out))     payload$nMajor     <- nMajor_out
   if (!is.null(nMinor_out))     payload$nMinor     <- nMinor_out
   if (!is.null(ci_out))         payload$ci         <- ci_out
