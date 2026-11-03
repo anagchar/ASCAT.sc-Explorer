@@ -192,7 +192,9 @@ body { background: var(--bg); }
 header { background: transparent; padding: 0 22px; }
 aside { background: var(--glass); backdrop-filter: blur(28px) saturate(170%); -webkit-backdrop-filter: blur(28px) saturate(170%);
   border: 1px solid var(--glass-line); border-radius: var(--r-card); margin: 0 0 16px 16px; box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
-  padding: 18px 16px 24px; }
+  padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+/* the panel scrolls inside an inset box, so its scrollbar stays clear of the rounded corners */
+.aside-scroll { flex: 1; min-height: 0; overflow-y: auto; margin: 10px 4px 10px 0; padding: 8px 8px 14px 16px; }
 .group h3 { text-transform: none; letter-spacing: 0; font-size: 12.5px; font-weight: 600; color: var(--ink2); margin-bottom: 10px; }
 .row, .slider { background: transparent; border-radius: 16px; padding: 9px 4px; margin-top: 2px; }
 .row + .row, .row + .slider, .slider + .slider, .slider + .row { border-top: 1px solid var(--glass-line); border-top-left-radius: 0; border-top-right-radius: 0; }
@@ -249,7 +251,6 @@ table th, table td { border-bottom-color: var(--glass-line); padding: 7px 8px; }
 ::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; min-height: 36px; }
 ::-webkit-scrollbar-thumb:hover { background-color: var(--ink3); }
 ::-webkit-scrollbar-corner { background: transparent; }
-aside::-webkit-scrollbar-track { margin: calc(var(--r-card) - 4px) 0; }
 .cells::-webkit-scrollbar-track { margin: 8px 0; }
 @supports not selector(::-webkit-scrollbar) { * { scrollbar-width: thin; scrollbar-color: var(--line2) transparent; } }
 @media (prefers-reduced-transparency: reduce) { aside, .card, .tile, .tabs, .tip, .menu .pop { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--panel); } }

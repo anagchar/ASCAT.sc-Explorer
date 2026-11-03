@@ -1464,7 +1464,7 @@ export default function App() {
         <button className="iconbtn" onClick={toggleTheme} title="Light or dark (t)" aria-label="Switch between light and dark"><ThemeIcon /></button>
       </header>
 
-      <aside>
+      <aside><div className="aside-scroll">
         <div className="group">
           <h3>Copy number</h3>
           {hasAS && (
@@ -1527,7 +1527,7 @@ export default function App() {
           <div className="navbtns"><button className="iconbtn" onClick={() => navigateCell(-1)}>↑ Previous</button><button className="iconbtn" onClick={() => navigateCell(1)}>Next ↓</button></div>
         </div>
         <div className="hint-keys"><kbd>↑</kbd> <kbd>↓</kbd> cells · <kbd>drag</kbd> zoom · <kbd>Esc</kbd> reset · <kbd>/</kbd> search · <kbd>t</kbd> theme</div>
-      </aside>
+      </div></aside>
 
       <main>
         <div className="tabs" role="tablist">
