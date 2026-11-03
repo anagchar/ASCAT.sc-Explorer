@@ -3,7 +3,7 @@ import { AS_COLORS } from "../../constants/colors";
 import { generateDemoData } from "./demoData";
 import { axes, chrLabel, css, esc, fit, fmt, fmtBp, fmtCount, fmtInt, FONT, hexRGB, niceTicks, quantile, saveCanvas, tip } from "./chart";
 import { computeQCMetrics, fmtMetric, isOutlier, METRIC_META, metricSummaries, num } from "./qc";
-import QCTab, { useWidth as useWidthOf } from "./QCTab";
+import QCTab, { useSize, useWidth as useWidthOf } from "./QCTab";
 
 /* Precomputed RGB lookup for allele-specific states (mirrors R's get_allele_specific_colors) */
 function hexToRGBArr(h) {
@@ -733,12 +733,9 @@ const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, 
       ctx.fillRect(toPxX(start_cum) - 0.75, MTT, 1.5, plotH);
     });
     ctx.fillStyle = css("--ink2"); ctx.font = `11px ${FONT}`; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
-    let lastLabel = -1e9;
-    chrInfo.forEach(({ chr, start_cum, end_cum }) => {
-      if (end_cum < xRange[0] || start_cum > xRange[1]) return;
-      const a = toPxX(Math.max(start_cum, xRange[0])), b = toPxX(Math.min(end_cum, xRange[1])), mid = (a + b) / 2;
-      if (b - a > 14 && mid - lastLabel > 22) { ctx.fillText(chrLabel(chr), mid, LABEL_Y); lastLabel = mid; }
-    });
+    const spans = chrInfo.filter(({ start_cum, end_cum }) => end_cum >= xRange[0] && start_cum <= xRange[1])
+      .map(({ chr, start_cum, end_cum }) => [chr, toPxX(Math.max(start_cum, xRange[0])), toPxX(Math.min(end_cum, xRange[1]))]);
+    for (const [t, x] of chromLabels(ctx, spans)) ctx.fillText(t, x, LABEL_Y);
   }, [data, cellOrder, cw, height, alleleMode, theme, xRange, yRange, nBins, nCells, plotW, plotH, chrInfo, toPxX, toPxY, MTT, cytobands]);
 
   // ── OVERLAY LAYER ──
@@ -883,16 +880,38 @@ const HeatmapCanvas = memo(forwardRef(function HeatmapCanvas({ data, cellOrder, 
    ═══════════════════════════════════════════════════════════════════════════ */
 const PR = { l: 40, t: 12, r: 10, b: 26 };
 
+/**
+ * Chromosome labels that fit: [text, x] for spans [chr, left px, right px].
+ * Each label needs its measured width plus a small gap from the previous one,
+ * and the last chromosome keeps its label over the one before it.
+ */
+function chromLabels(g, spans) {
+  const out = [], GAP = 2;
+  for (const [chr, a, b] of spans) {
+    const t = chrLabel(chr), w = g.measureText(t).width, x = (a + b) / 2;
+    if (b - a < 4) continue;
+    const prev = out[out.length - 1];
+    if (prev && x - w / 2 < prev[1] + prev[2] / 2 + GAP) {
+      if (chr !== spans[spans.length - 1][0]) continue;
+      out.pop();
+    }
+    out.push([t, x, w]);
+  }
+  return out;
+}
+
 function drawChromosomes(g, data, xS, gx0, gx1, top, h, labelY) {
   g.textAlign = "center"; g.textBaseline = "alphabetic"; g.font = `11px ${FONT}`;
-  let last = -1e9;
+  const spans = [];
   for (const { chr, start_cum, end_cum } of data.chr_info) {
     if (end_cum < gx0 || start_cum > gx1) continue;
     const a = xS(Math.max(start_cum, gx0)), b = xS(Math.min(end_cum, gx1));
     if (start_cum > gx0) { g.strokeStyle = css("--line2"); g.lineWidth = 1; g.beginPath(); g.moveTo(Math.round(a) + 0.5, top); g.lineTo(Math.round(a) + 0.5, top + h); g.stroke(); }
-    const mid = (a + b) / 2;
-    if (labelY != null && b - a > 12 && mid - last > 20) { g.fillStyle = css("--ink2"); g.fillText(chrLabel(chr), mid, labelY); last = mid; }
+    spans.push([chr, a, b]);
   }
+  if (labelY == null) return;
+  g.fillStyle = css("--ink2");
+  for (const [t, x] of chromLabels(g, spans)) g.fillText(t, x, labelY);
 }
 
 /** Runs of one integer state within a chromosome: [first bin, last bin + 1, state]. */
@@ -1066,9 +1085,9 @@ const ReadDepthPlot = memo(function ReadDepthPlot({ data, cellName, height = 120
    The gap between this curve and the diagonal line of equality is exactly
    what the Gini coefficient (annotated on-chart) quantifies.
    ═══════════════════════════════════════════════════════════════════════════ */
-const LorenzCurvePlot = memo(function LorenzCurvePlot({ data, cellName, gini, height = 260, theme }) {
+const LorenzCurvePlot = memo(function LorenzCurvePlot({ data, cellName, gini, theme }) {
   const containerRef = useRef(); const canvasRef = useRef();
-  const width = useWidthOf(containerRef, 320);
+  const { w: width, h: height } = useSize(containerRef, 260);
   const reads = cellName ? data.reads?.[cellName] : null;
 
   const points = useMemo(() => {
@@ -1102,7 +1121,7 @@ const LorenzCurvePlot = memo(function LorenzCurvePlot({ data, cellName, gini, he
   }, [points, width, height, gini, theme]);
 
   return (
-    <div ref={containerRef} style={{ width: "100%" }}>
+    <div ref={containerRef} className="fill" style={{ minHeight: points ? 260 : 0 }}>
       {points ? <canvas ref={canvasRef} /> : <div className="empty">No per-bin read counts in this export — re-export with the current ascatsc_to_web.R to include them.</div>}
     </div>
   );

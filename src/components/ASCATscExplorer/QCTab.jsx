@@ -2,6 +2,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { axes, axisTicks, css, emptyMsg, esc, fit, FONT, hexRGB, legendRow, mixRGB, niceTicks, roundTop, tip } from "./chart";
 import { fmtMetric, spearman } from "./qc";
 
+/** Width and height of a `.fill` box: charts that take their card's full height. */
+export function useSize(ref, minH) {
+  const [s, setS] = useState({ w: 600, h: minH });
+  useEffect(() => {
+    if (!ref.current) return;
+    const ro = new ResizeObserver((e) => {
+      const r = e[0]?.contentRect; if (!r || !(r.width > 0)) return;
+      setS({ w: Math.round(r.width), h: Math.max(minH, Math.round(r.height)) });
+    });
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, [ref, minH]);
+  return s;
+}
+
 export function useWidth(ref, fallback = 600) {
   const [w, setW] = useState(fallback);
   useEffect(() => {
@@ -21,9 +36,9 @@ function statusHTML(pass, reason) {
 /* ---------- Explore: any metric against any other ---------- */
 function Scatter({ cells, mx, my, vals, passing, shown, reasons, sel, onSelect, thresholds, theme }) {
   const wrap = useRef(), cv = useRef(), pts = useRef([]), hover = useRef(null);
-  const W = useWidth(wrap);
+  const { w: W, h: H } = useSize(wrap, 340);
   useEffect(() => {
-    const H = 340, g = fit(cv.current, W, H); g.clearRect(0, 0, W, H);
+    const g = fit(cv.current, W, H); g.clearRect(0, 0, W, H);
     if (!mx || !my) return emptyMsg(g, W, H, "No metric varies between the cells.");
     const xs = vals[mx.key], ys = vals[my.key];
     const okx = xs.filter((v) => !isNaN(v) && (!mx.log || v > 0)), oky = ys.filter((v) => !isNaN(v) && (!my.log || v > 0));
@@ -40,19 +55,21 @@ function Scatter({ cells, mx, my, vals, passing, shown, reasons, sel, onSelect, 
     // median ± 3 MAD of each axis, on the bad side
     g.setLineDash([4, 4]); g.strokeStyle = css("--ink3"); g.lineWidth = 1;
     const line = (v, isX) => {
-      const lim = isX ? [x0, x1] : [y0, y1]; if (!(isFinite(v) && v > lim[0] && v < lim[1])) return;
+      const lim = isX ? [x0, x1] : [y0, y1]; if (!(isFinite(v) && v > lim[0] && v < lim[1])) return false;
       g.beginPath(); if (isX) { g.moveTo(tx(v), box.t); g.lineTo(tx(v), box.t + box.h); } else { g.moveTo(box.l, ty(v)); g.lineTo(box.l + box.w, ty(v)); } g.stroke();
+      return true;
     };
     for (const [m, isX] of [[mx, true], [my, false]]) for (const [v, side] of [[m.lo, "lower"], [m.hi, "upper"]]) if (m.dir === side || m.dir === "both") line(v, isX);
     // the sidebar's QC thresholds
     g.setLineDash([]); g.strokeStyle = css("--serious"); g.globalAlpha = 0.8;
-    for (const [m, isX] of [[mx, true], [my, false]]) if (thresholds[m.key] != null) line(thresholds[m.key], isX);
+    let drawnThreshold = false;
+    for (const [m, isX] of [[mx, true], [my, false]]) if (thresholds[m.key] != null && line(thresholds[m.key], isX)) drawnThreshold = true;
     g.globalAlpha = 1;
     pts.current = [];
-    for (const pass of [false, true]) for (let i = 0; i < cells.length; i++) {
+    for (const pass of [true, false]) for (let i = 0; i < cells.length; i++) {
       if (passing[i] !== pass || isNaN(xs[i]) || isNaN(ys[i]) || (mx.log && !(xs[i] > 0)) || (my.log && !(ys[i] > 0))) continue;
       const x = tx(xs[i]), y = ty(ys[i]); pts.current.push([x, y, i]);
-      g.globalAlpha = shown.has(cells[i]) ? 0.85 : 0.18; g.fillStyle = css(pass ? "--series1" : "--series2");
+      g.globalAlpha = shown.has(cells[i]) || !pass ? 0.85 : 0.18; g.fillStyle = css(pass ? "--series1" : "--series2");
       g.beginPath(); if (pass) g.arc(x, y, 3.2, 0, 7); else { g.moveTo(x, y - 4); g.lineTo(x + 3.6, y + 2.6); g.lineTo(x - 3.6, y + 2.6); } g.fill();
     }
     g.globalAlpha = 1;
@@ -63,16 +80,16 @@ function Scatter({ cells, mx, my, vals, passing, shown, reasons, sel, onSelect, 
       g.strokeStyle = css("--accent"); g.beginPath(); g.arc(x, y, 5.5, 0, 7); g.stroke();
     }
     const items = [["--series1", "passes QC", "dot"], ["--series2", "flagged", "tri"], ["--ink3", "median ± 3 MAD", "line"]];
-    if (thresholds[mx.key] != null || thresholds[my.key] != null) items.push(["--serious", "threshold", "line"]);
+    if (drawnThreshold) items.push(["--serious", "threshold", "line"]);
     legendRow(g, box.l, 12, items);
-  }, [W, cells, mx, my, vals, passing, shown, sel, thresholds, theme]);
+  }, [W, H, cells, mx, my, vals, passing, shown, sel, thresholds, theme]);
   const move = (e) => {
     const r = cv.current.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
     let best = null, bd = 64; for (const [px, py, i] of pts.current) { const d = (px - x) ** 2 + (py - y) ** 2; if (d < bd) { bd = d; best = i; } }
     cv.current.style.cursor = best == null ? "default" : "pointer"; hover.current = best;
     tip(e, best == null ? null : `<b class="mono">${esc(cells[best])}</b><br>${statusHTML(passing[best], reasons[best])}<br><span class="k">${esc(mx.label)}</span> ${fmtMetric(mx.key, vals[mx.key][best])}<br><span class="k">${esc(my.label)}</span> ${fmtMetric(my.key, vals[my.key][best])}`);
   };
-  return <div ref={wrap}><canvas ref={cv} onMouseMove={move} onMouseLeave={(e) => tip(e, null)} onClick={() => hover.current != null && onSelect(cells[hover.current])} /></div>;
+  return <div ref={wrap} className="fill" style={{ minHeight: 340 }}><canvas ref={cv} onMouseMove={move} onMouseLeave={(e) => tip(e, null)} onClick={() => hover.current != null && onSelect(cells[hover.current])} /></div>;
 }
 
 /* ---------- Spearman correlation matrix ---------- */
